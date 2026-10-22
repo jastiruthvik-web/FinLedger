@@ -98,6 +98,15 @@ Do not author a competing migration/consumer.
   adapters to the reviewed real worker path, not the test-only SQL overlay or in-memory defaults.
 - [ ] Verify reservation/usage persistence after restart, concurrent workers and tenant isolation.
   Define recovery for a provider response followed by DB failure so a retry cannot hide usage.
+- [ ] **Decide the expired-hold budget rule (migration 013, merged in
+  [PR #47](https://github.com/ryanshaon/FinLedger/pull/47) at `0a40ac6`).** When a worker dies between
+  `llm_reserve_tokens` and settlement, the next claim marks its hold `expired`; expired holds are kept for
+  audit but no longer count toward the bill's cap. If the dead attempt had already made a paid call, that
+  spend leaves the cap: with `max_attempts = 5`, one bill could reach roughly 5× its cap in the worst case.
+  This conflicts with §2 (missing usage must not erase a paid call from the cap). Choose and record one:
+  keep counting expired holds (conservative; a crash uses up part of that bill's budget), count a bounded
+  share, or accept the current rule with written justification. Any change is a new reviewed migration
+  (014) by Harshith; never edit 012 or 013. Add a regression for the chosen rule.
 - [ ] Integrate extraction into scoring/mapping/review and test replay, lease expiry,
   late results, schema failures, scanner outage, caps and retry exhaustion on synthetic data.
 - [ ] Independently verify automation-maker/human-editor separation with Harshith's implementation.
