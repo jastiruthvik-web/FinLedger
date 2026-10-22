@@ -5,6 +5,7 @@ import pytest
 
 from extract.extract_worker import ExtractWorker
 from extract.failures import (
+    OBJECT_KEY_REJECTED,
     ExtractFailure,
     INVALID_MODEL_OUTPUT,
     MISSING_EXTRACT_INPUT,
@@ -107,7 +108,7 @@ def test_provider_payload_uses_bytes_not_paths():
         "client-a",
         "doc-bytes",
         "",
-        page_image_paths=["client-a/doc/scan.png", "https://evil.example/x.png"],
+        page_image_paths=["client-a/doc/scan.png"],
         page_image_bytes=[b"Invoice No: BYTE-1\nTotal: 50"],
     )
     vision_calls = [item for item in captured if item["purpose"] == "extract_vision"]
@@ -118,6 +119,40 @@ def test_provider_payload_uses_bytes_not_paths():
     serialized = json.dumps(payload, default=str)
     assert "scan.png" not in serialized
     assert "https://" not in serialized
+
+
+def test_foreign_object_key_blocks_model_call():
+    worker, captured = _worker_with_captured_payload()
+    dispatcher = ExtractionDispatcher(worker, page_cap=2)
+    rich = (REGRESSION_FIXTURES / "pii_canary.md").read_text(encoding="utf-8")
+    with pytest.raises(ExtractFailure) as exc:
+        dispatcher.extract(
+            "client-a",
+            "doc-foreign",
+            rich,
+            page_image_paths=["client-a/ok.png", "https://evil.example/x.png"],
+            page_image_bytes=[b"ignored"],
+        )
+    assert exc.value.category == OBJECT_KEY_REJECTED
+    assert captured == []
+    assert CANARY not in str(exc.value)
+    assert "evil.example" not in str(exc.value)
+
+    with pytest.raises(ExtractFailure) as exc:
+        dispatcher.extract(
+            "client-a",
+            "doc-stmt-key",
+            "statement",
+            page_image_paths=["https://evil.example/x.png"],
+            document_class="statement",
+        )
+    assert exc.value.category == STATEMENT_NOT_EXTRACTED
+    assert captured == []
+
+    with pytest.raises(ExtractFailure) as exc:
+        dispatcher.extract("client-a", "doc-escape", "", page_image_paths=["client-a/../../other/raw.pdf"])
+    assert exc.value.category == OBJECT_KEY_REJECTED
+    assert captured == []
 
 
 def test_minimized_inputs_drop_canary_from_provider_payload():
@@ -142,7 +177,7 @@ def test_markdown_path_does_not_send_images():
         "client-a",
         "doc-digital",
         "Invoice No: ONLY-MD\nTotal: 10",
-        page_image_paths=["should-not-send.png"],
+        page_image_paths=["client-a/should-not-send.png"],
         page_image_bytes=[b"ignored"],
     )
     assert len(captured) == 1

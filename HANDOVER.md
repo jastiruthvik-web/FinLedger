@@ -226,6 +226,28 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 release integration (local, Ruthvik):** Branch `feat/release-integration`.
+No hosted SQL, credentials, live model calls, email, or Person 4 edits. Migrations `001`–`011`
+were not reapplied. There is still no platform migration after `011` and no `extract-worker`;
+no open PR from the platform contributor was available to integrate, so those items were not
+reimplemented here.
+
+Local suites on this branch, Python 3.12, uv 0.10.9, PostgreSQL 16 `initdb` on PATH:
+`pytest packages evals` **91 passed**; mock `evals/run_evals.py --provider-mode mock`
+**3/3 structural + 6/6 exact** (report kept out of git); `pytest person2_platform/tests`
+**333 passed** (existing Starlette warning); `pytest person3_control_ui/tests` **64 passed**
+(same warning). Docker is not installed in this environment, so the CI image job was not run
+locally. Commands match `.github/workflows/ci.yml` with workspace basetemps
+`.pytest-person1`, `.pytest-person2`, `.pytest-person3`.
+
+Added a fake-HTTP Gemini transport (explicit location/model, bounded payload, fixed error
+categories, credential kept out of errors and URLs). `ModelRouter` still requires an explicit
+transport and still refuses `mock` and `gemini` in staging/production. Object keys outside
+`{client_id}/` now fail as `object_key_rejected` before a model call. The review desk labels
+queued, failed, budget-exhausted, excluded-statement and quarantined documents without calling
+an accepted job a success, and invalid review forms return a fixed HTML error that does not
+echo the submission. Evidence: [docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md).
+
 **2026-10-22 consolidated release assignment:** Synced main to `cf5d2f0` (PR #37). Added
 `docs/assignments/RELEASE_INTEGRATION.md` for remaining AI runtime integration, platform integration,
 staging operations and controls/QA, including work previously assigned to Ryan. Existing friend's

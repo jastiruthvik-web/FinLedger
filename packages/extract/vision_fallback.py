@@ -2,6 +2,7 @@ from contracts.schemas import CanonicalInvoice
 from extract.extract_worker import ExtractWorker
 from extract.failures import ExtractFailure, MISSING_EXTRACT_INPUT, STATEMENT_NOT_EXTRACTED, VISION_PAGE_CAP
 from extract.input_policy import DEFAULT_MAX_IMAGE_BYTES, validate_page_image_bytes
+from extract.object_keys import require_tenant_object_keys
 
 
 class ExtractionDispatcher:
@@ -25,6 +26,8 @@ class ExtractionDispatcher:
             raise ExtractFailure(STATEMENT_NOT_EXTRACTED)
 
         paths = list(page_image_paths or [])
+        # Foreign keys are refused before a storage read or a model call, including the markdown path.
+        require_tenant_object_keys(client_id, paths)
         image_bytes = list(page_image_bytes or [])
 
         if markdown.strip():

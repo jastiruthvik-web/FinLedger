@@ -10,6 +10,9 @@ from usage.provider import ProviderResponse, _tokens
 from usage.provider_errors import ProviderTransientError
 from usage.providers.transport import GeminiTransport, TransportError
 
+# Fixed categories only. Auth and schema failures are not retried.
+_RETRYABLE = frozenset({"timeout", "http_429", "http_5xx", "transport_unavailable"})
+
 
 @dataclass(frozen=True)
 class GeminiSettings:
@@ -84,11 +87,11 @@ class GeminiProvider:
                 return response.text, response.tokens_in or tokens_in, response.tokens_out, latency_ms
             except TransportError as exc:
                 last_error = exc
-                if exc.code not in {"timeout", "http_429", "http_5xx"}:
+                if exc.code not in _RETRYABLE:
                     raise
                 if attempts > self.settings.max_retries:
                     raise ProviderTransientError()
         assert last_error is not None
-        if last_error.code in {"timeout", "http_429", "http_5xx"}:
+        if last_error.code in _RETRYABLE:
             raise ProviderTransientError()
         raise last_error
