@@ -139,6 +139,14 @@ def test_raw_exception_text_never_reaches_last_error(world, client, conn, store,
     assert jobs(conn, world.a["id"], "extract")[0]["last_error"] == "extract processing failed"
 
 
+def test_unknown_failure_category_never_reaches_the_document(world, client, conn, store, settings):
+    doc_id = ingested(world, client, conn, store, settings)
+    leak = Recorder(error=Failure("Shree Ganesh Metals GSTIN 27AAACS1234A1Z1"))
+    assert run_once(conn, store, leak) == "queued"
+    assert dict(doc_row(conn, world, doc_id)) == {"status": "received", "status_reason": None}
+    assert jobs(conn, world.a["id"], "extract")[0]["last_error"] == "extract processing failed"
+
+
 def test_lost_lease_rejects_late_result(world, client, conn, store, settings, owner, pool):
     doc_id = ingested(world, client, conn, store, settings)
     with pool.connection() as other:

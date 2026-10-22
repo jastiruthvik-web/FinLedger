@@ -19,6 +19,7 @@ import time
 from typing import Any, Callable
 
 import psycopg
+from extract.failures import FAILURE_CATEGORIES
 from psycopg.types.json import Jsonb
 
 from .db import tenant
@@ -120,8 +121,8 @@ def process_extract(conn: psycopg.Connection, store, extract: ExtractFn, job: di
                           page_image_bytes=images)
     except Exception as e:
         category = getattr(e, "category", None)
-        if not isinstance(category, str) or category == PROVIDER_TRANSIENT:
-            raise
+        if category not in FAILURE_CATEGORIES or category == PROVIDER_TRANSIENT:
+            raise  # unknown categories retry under a fixed reason; only Person 1's fixed set reaches documents
         return _settle(conn, job, "exception", category, None)
     return _settle(conn, job, "extracted", None, invoice)
 

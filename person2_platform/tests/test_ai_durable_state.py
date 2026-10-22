@@ -87,7 +87,15 @@ def test_concurrent_reservations_on_one_bill_admit_one(world, conn, pool):
 def test_cross_tenant_reads_and_calls_are_denied(world, conn):
     a, c = world.a["id"], world.c["id"]
     doc = new_doc(conn, a)
-    reserve(conn, a, doc, 5)
+    held = reserve(conn, a, doc, 5)
+    with pytest.raises(psycopg.Error, match="unknown_reservation"):
+        with tenant(conn, c):
+            conn.execute("select llm_reconcile_tokens(%s)", (held,))
+    with tenant(conn, c):
+        conn.execute("select llm_release_tokens(%s)", (held,))  # no-op for another tenant's hold
+    with tenant(conn, a):
+        assert conn.execute("select state from llm_token_reservations where reservation_id = %s",
+                            (held,)).fetchone()["state"] == "held"
     with tenant(conn, a):
         conn.execute("""insert into llm_usage_rows (client_id, document_id, reservation_id, purpose, model,
                         tokens_in, tokens_out, latency_ms) values (%s, %s, %s, 'extract', 'mock', 1, 1, 1)""",

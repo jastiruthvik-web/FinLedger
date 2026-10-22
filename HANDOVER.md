@@ -226,19 +226,28 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
-**2026-10-22 platform integration (Harshith, branch `feat/platform-integration`):** Added migration
+**2026-10-22 platform integration (Harshith, branch `feat/platform-integration`, PR #41):** Added migration
 `012_ai_durable_state.sql` (not applied anywhere hosted): `rag_chunks` unique `(client_id, ref)` with
 `legacy:`/`auto:` refs for empty values and a hard stop on existing duplicates, `llm_usage_rows`,
 `llm_token_reservations`, tenant RLS, `llm_reserve/reconcile/release_tokens` (signatures match
-`PostgresKillSwitch`, extract/score/map worker roles only) and one non-login automation maker per firm
-(`users.automation`; no token, Auth subject, firm-admin flag or client roles). Added
-`finledger-platform extract-worker` plus a Compose service (mock provider, local only): statements and
-keys outside `{client_id}/` become document exceptions before storage/AI; success settles `extracted`,
-a maker-attributed workflow event and a `score` job in one transaction that re-checks the lease.
-Local run: **71 AI / 355 platform / 55 UI passed**, mock **3/3 + 6/6**, 0 skipped. Open for Ruthvik:
-`score` job consumer, wiring `PostgresKillSwitch` (reserve/reconcile inside short `tenant()` scopes)
-and retiring the `ai_durable_ephemeral.sql` overlay, which redefines the 012 functions in AI tests.
-Hosted login/grants, storage/email/scanner proofs and deployment remain blocked on owner approval.
+`PostgresKillSwitch`, extract/score/map worker roles only, reconcile/release bound to the caller's tenant)
+and one non-login automation maker per firm (`users.automation`; no token, Auth subject, firm-admin flag
+or client roles). Added `finledger-platform extract-worker` plus a Compose service (mock provider, local
+only): statements and keys outside `{client_id}/` become document exceptions before storage/AI; only
+Person 1's fixed failure categories reach `documents.status_reason` (anything else retries under a fixed
+reason); success settles `extracted`, a maker-attributed workflow event and a `score` job in one
+transaction that re-checks the lease. Retired `packages/testing/sql/ai_durable_ephemeral.sql`: AI durable
+tests now run on the real numbered migrations in an ephemeral database.
+Local run: **71 AI / 356 platform / 55 UI passed**, mock **3/3 + 6/6**, 0 skipped. Native process smoke
+of the Compose services (fresh migrate, `isolation-check` 11/11, upload → `extracted` → `score` queued)
+passed; ClamAV ran as the `eicar` stub. Not verified: local Docker build (registry blocked; CI `image`
+job builds it), real ClamAV, S3, email, staging Auth E2E, restricted staging login, hosting.
+Hosted changes: none. Next owner, Ruthvik: `score` job consumer (payload carries `canonical_invoice` and
+`maker_id`), wiring `PostgresKillSwitch` + `PostgresUsageWriter` into `default_extract()` (reserve and
+reconcile inside short `tenant()` scopes, not around the model call), and agreeing maker-checker:
+whether a human who edits extracted fields becomes the recorded maker (and so cannot approve that bill)
+or the automation maker stays maker and any human approver may approve. Owner approval still needed for
+hosted login/grants, storage/email/scanner proofs and deployment.
 
 **2026-10-22 Ruthvik PR #39 review follow-up:** Inspected open head `1eb9544` and CI run
 `39767884426`: **91 AI / 333 platform / 64 UI**, mock **3/3 + 6/6**; test/image jobs passed.

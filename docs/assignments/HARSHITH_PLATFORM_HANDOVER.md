@@ -80,7 +80,7 @@ Coordinate contracts, root CI and dependencies with Ruthvik. Never point test-ow
 | Durable retrieval | `packages/rag/postgres_indexer.py` |
 | Token reservations/usage | `packages/usage/postgres_kill_switch.py`, `packages/usage/postgres_usage_writer.py` |
 | Fake-tested Gemini boundary | `packages/usage/providers/`, `packages/usage/model_router.py` |
-| Durability tests/reference SQL | `packages/usage/tests/test_durable_postgres.py`, `packages/testing/sql/ai_durable_ephemeral.sql` |
+| Durability tests/reference SQL | `packages/usage/tests/test_durable_postgres.py`, `person2_platform/src/finledger_platform/migrations/012_ai_durable_state.sql` |
 
 Person 1's extraction contract does not supply a maker actor ID. Runtime mapping belongs in
 the platform/control integration, not an invented identity in the AI payload.
