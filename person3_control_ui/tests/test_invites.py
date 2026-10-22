@@ -171,3 +171,91 @@ def test_accept_invite_get_never_redeems_and_post_sets_password(pool, world):
     denied = client.post("/auth/accept", headers=SAME_ORIGIN,
                          data={**form, "password": "correct horse battery", "password_confirm": "correct horse battery"})
     assert denied.status_code == 400 and "invite you again" in denied.text
+
+
+def test_fake_auth_journey_invite_password_login_totp_clients_and_logout(pool, owner_dsn, world):
+    """Invite through logout with fake Auth. Expiry and revocation both end as SessionDenied."""
+    fake = FakeAdmin()
+    admin_client, admin_csrf = signed_in(pool, admin_sessions(world), StaffInvitations(fake))
+    invited = admin_client.post("/admin/staff/invite", headers=SAME_ORIGIN, data={
+        "csrf_token": admin_csrf, "email": "journey.clerk@sharma.test", "name": "Journey",
+        "membership": [f"{world['client']['id']}:ap_clerk"]})
+    assert invited.status_code == 201 and fake.invited == ["journey.clerk@sharma.test"]
+
+    class Journey(Sessions):
+        def __init__(self):
+            super().__init__(world["approver"], world["client"]["firm_id"], False, "aal1")
+            self.cookie = "journey-cookie-with-forty-characters-minimum"
+            self.upgraded = "journey-upgraded-cookie-forty-characters-min"
+            self.dead = set()
+            self.signed_out = False
+
+        def sign_in(self, conn, email, password):
+            if password != "correct-horse-battery":
+                raise SessionDenied("sign-in failed")
+            return self.cookie
+
+        def resolve(self, conn, cookie):
+            if cookie in self.dead:
+                raise SessionDenied("session expired or revoked")
+            if cookie == self.upgraded:
+                return StaffSession(world["approver"], world["client"]["firm_id"], False, "aal2")
+            if cookie == self.cookie:
+                return StaffSession(world["approver"], world["client"]["firm_id"], False, "aal1")
+            raise SessionDenied("unknown session")
+
+        def mfa_factors(self, conn, cookie):
+            return ["11111111-1111-1111-1111-111111111111"]
+
+        def mfa_verify(self, conn, cookie, factor_id, code):
+            if code != "123456":
+                raise SessionDenied("bad code")
+            self.dead.add(cookie)
+            return self.upgraded
+
+        def sign_out(self, conn, cookie):
+            self.signed_out = True
+            self.dead.add(cookie)
+
+    journey = Journey()
+    client = TestClient(create_app(pool, browser_sessions=journey))
+    page = client.get("/auth/accept?type=invite&token_hash=hash-0123456789abcdef")
+    csrf = page.cookies["fl_login_csrf"]
+    secret = "not-the-real-password"
+    mismatch = client.post("/auth/accept", headers=SAME_ORIGIN, data={
+        "csrf_token": csrf, "token_hash": "hash-0123456789abcdef",
+        "password": secret, "password_confirm": "different-secret"})
+    assert mismatch.status_code == 400 and secret not in mismatch.text and journey.accepted == []
+    accepted = client.post("/auth/accept", headers=SAME_ORIGIN, follow_redirects=False, data={
+        "csrf_token": csrf, "token_hash": "hash-0123456789abcdef",
+        "password": "correct-horse-battery", "password_confirm": "correct-horse-battery"})
+    assert accepted.status_code == 303 and accepted.headers["location"] == "/login"
+    assert journey.accepted == [("hash-0123456789abcdef", "correct-horse-battery")]
+
+    login_page = client.get("/login")
+    csrf = login_page.cookies["fl_login_csrf"]
+    bad = client.post("/login", headers=SAME_ORIGIN, data={
+        "email": "journey.clerk@sharma.test", "password": secret, "csrf_token": csrf})
+    assert bad.status_code == 401 and secret not in bad.text and world["client"]["name"] not in bad.text
+    login = client.post("/login", headers=SAME_ORIGIN, follow_redirects=False, data={
+        "email": "journey.clerk@sharma.test", "password": "correct-horse-battery", "csrf_token": csrf})
+    assert login.status_code == 303
+    blocked = client.get("/", follow_redirects=False)
+    assert blocked.status_code == 303 and blocked.headers["location"] == "/mfa"
+    assert client.get(f"/clients/{world['client']['id']}/review", follow_redirects=False).headers["location"] == "/mfa"
+    verified = client.post("/mfa/verify", headers=SAME_ORIGIN, follow_redirects=False, data={
+        "csrf_token": csrf, "factor_id": "11111111-1111-1111-1111-111111111111", "code": "123456"})
+    assert verified.status_code == 303
+    assert verified.cookies["fl_dev_session"] == journey.upgraded
+    client.cookies.set("fl_dev_session", journey.cookie)
+    stale = client.get("/", follow_redirects=False)
+    assert stale.status_code == 303 and stale.headers["location"] == "/login"
+    assert world["client"]["name"] not in stale.text
+    client.cookies.set("fl_dev_session", journey.upgraded)
+    home = client.get("/")
+    assert home.status_code == 200 and world["client"]["name"] in home.text
+    logout = client.post("/logout", headers=SAME_ORIGIN, follow_redirects=False, data={"csrf_token": csrf})
+    assert logout.status_code == 303 and journey.signed_out
+    again = client.get("/", follow_redirects=False)
+    assert again.status_code == 303 and again.headers["location"] == "/login"
+    assert world["client"]["name"] not in again.text

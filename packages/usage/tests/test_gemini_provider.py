@@ -26,7 +26,7 @@ def test_fake_transport_success_without_network():
     assert CANARY not in json.dumps(transport.calls)
 
 
-@pytest.mark.parametrize("code", ["timeout", "http_429", "http_5xx"])
+@pytest.mark.parametrize("code", ["timeout", "http_429", "http_5xx", "transport_unavailable"])
 def test_transient_errors_retry_then_provider_transient(code):
     transport = FakeGeminiTransport([TransportError(code), TransportError(code)])
     with pytest.raises(ProviderTransientError):

@@ -114,11 +114,77 @@ def render_accept_invite(csrf_token: str, token_hash: str, error: str = "") -> s
     return _page("Set password · FinLedger", body)
 
 
+def processing_label(item: dict) -> str:
+    """Staff-facing state. Accepting a job is not extraction success."""
+    status = str(item.get("status") or "")
+    document_class = str(item.get("document_class") or "")
+    reason = str(item.get("status_reason") or "").strip().lower()
+    extract_state = item.get("extract_state")
+    if document_class == "statement" and status == "received":
+        return "Statement not extracted"
+    if document_class == "statement" and status in {"exception", "quarantined"}:
+        return "Statement excluded"
+    if reason in {"statement_not_extracted", "statement excluded", "statement not extracted"}:
+        return "Statement excluded"
+    if reason in {"ai_budget_exceeded", "ai budget exceeded"}:
+        return "AI budget exhausted"
+    if status == "quarantined":
+        return "Quarantined"
+    if status == "received":
+        if extract_state == "dead":
+            return "Extraction failed"
+        if extract_state == "done":
+            return "Extraction unfinished"
+        return "Queued for extraction"
+    return {
+        "exception": "Failed",
+        "rejected": "Rejected",
+        "resubmit": "Resubmit requested",
+        "in_review": "Needs review",
+        "extracted": "Extracted",
+        "scored": "Scored",
+        "approved": "Approved",
+        "posted": "Posted",
+        "scheduled": "Scheduled",
+        "paid": "Paid",
+        "reconciled": "Reconciled",
+        "closed": "Closed",
+    }.get(status, status.replace("_", " ").title() or "Unknown")
+
+
+def render_form_error(message: str = "This form is incomplete or invalid. Nothing was saved.") -> str:
+    body = (f'<main class="shell" style="max-width:520px"><h1>Form not saved</h1>'
+            f'<p role="alert" class="mark">{escape(message)}</p></main>')
+    return _page("Invalid form · FinLedger", body)
+
+
+def _inbox_amount(total) -> str:
+    if total is None:
+        return "—"
+    return f"₹{float(total):,.2f}"
+
+
+def _inbox_name(item: dict) -> str:
+    title = item.get("invoice_no") or item.get("original_filename") or item.get("filename") or "Untitled"
+    text = escape(str(title))
+    if item.get("invoice_no"):
+        return f'<a href="review/{escape(str(item["document_id"]))}">{text}</a>'
+    return text
+
+
 def render_inbox(items, counts, active, client_name):
     labels=(("new","New"),("needs_review","Needs review"),("approved","Approved"),("posted","Posted"),("exception","Exception"))
     tabs=''.join(f'<a class="{"active" if k==active else ""}" href="?queue={k}">{v}<span class="count">{counts.get(k,0)}</span></a>' for k,v in labels)
     if items:
-        rows=''.join(f'<tr><td><a href="review/{escape(str(x["document_id"]))}">{escape(str(x.get("invoice_no") or x.get("filename") or "Untitled"))}</a></td><td>{escape(str(x.get("vendor_name") or "Unresolved vendor"))}</td><td>₹{float(x.get("total") or 0):,.2f}</td><td><span class="risk {escape(str(x.get("band") or ""))}">{escape(str(x.get("band") or "pending").title())} {x.get("score") if x.get("score") is not None else ""}</span></td><td>{escape(str(x.get("status") or ""))}</td></tr>' for x in items)
+        rows=''.join(
+            '<tr>'
+            f'<td>{_inbox_name(x)}</td>'
+            f'<td>{escape(str(x.get("vendor_name") or "Unresolved vendor"))}</td>'
+            f'<td>{_inbox_amount(x.get("total"))}</td>'
+            f'<td><span class="risk {escape(str(x.get("band") or ""))}">{escape(str(x.get("band") or "pending").title())} '
+            f'{x.get("score") if x.get("score") is not None else ""}</span></td>'
+            f'<td>{escape(processing_label(x))}</td>'
+            '</tr>' for x in items)
         content=f'<table class="ledger"><thead><tr><th>Invoice</th><th>Vendor</th><th>Amount</th><th>Risk</th><th>State</th></tr></thead><tbody>{rows}</tbody></table>'
     else:
         empty={"needs_review":"No bills need review","new":"No new bills","approved":"No approved drafts","posted":"No posted bills","exception":"No exceptions"}[active]

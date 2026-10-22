@@ -1,4 +1,4 @@
-from finledger_control.web import render_inbox, render_review
+from finledger_control.web import processing_label, render_inbox, render_review
 
 
 def detail():
@@ -34,4 +34,39 @@ def test_inbox_has_required_queues_and_clear_empty_state():
     for label in ("New", "Needs review", "Approved", "Posted", "Exception"):
         assert label in html
     assert "No bills need review" in html
+
+
+def test_review_shows_duplicate_mark():
+    item = detail()
+    item["risk"]["marks"].append({"field": "invoice_no", "check": "duplicate", "ok": False,
+                                  "note": "same vendor, invoice number, FY and amount"})
+    html = render_review(item, roles={"approver"})
+    assert "duplicate" in html and "same vendor, invoice number, FY and amount" in html
+    assert "Success" not in html
+
+
+def test_processing_labels_do_not_call_a_queued_job_successful():
+    queued = {"status": "received", "document_class": "invoice", "extract_state": "queued",
+              "original_filename": "vendor-bill.pdf", "document_id": "22222222-2222-2222-2222-222222222222"}
+    failed = {**queued, "extract_state": "dead"}
+    budget = {"status": "exception", "document_class": "invoice", "status_reason": "ai_budget_exceeded",
+              "document_id": queued["document_id"], "original_filename": "cap.pdf"}
+    statement = {"status": "exception", "document_class": "statement", "status_reason": "statement_not_extracted",
+                 "document_id": queued["document_id"], "original_filename": "stmt.csv"}
+    assert processing_label(queued) == "Queued for extraction"
+    assert processing_label(failed) == "Extraction failed"
+    assert processing_label(budget) == "AI budget exhausted"
+    assert processing_label(statement) == "Statement excluded"
+    waiting = {**statement, "status": "received", "status_reason": None}
+    assert processing_label(waiting) == "Statement not extracted"
+    html = render_inbox([queued, failed], {"new": 2, "needs_review": 0, "approved": 0, "posted": 0, "exception": 0},
+                        "new", "Acme Steel")
+    assert "vendor-bill.pdf" in html and "Queued for extraction" in html and "Extraction failed" in html
+    assert "Success" not in html and "Processed" not in html
+    assert "₹0.00" not in html
+    exception = render_inbox([budget, statement],
+                             {"new": 0, "needs_review": 0, "approved": 0, "posted": 0, "exception": 2},
+                             "exception", "Acme Steel")
+    assert "AI budget exhausted" in exception and "Statement excluded" in exception
+    assert "cap.pdf" in exception and "<script>" not in exception
 

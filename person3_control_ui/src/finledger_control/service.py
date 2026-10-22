@@ -216,8 +216,16 @@ class ControlService:
     def queue_counts(self, client_id):
         with self._tx(client_id):
             rows = self.conn.execute("select status,count(*) from documents group by status").fetchall()
-            d = {r["status"]: r["count"] for r in rows}; return {"new":d.get("received",0)+d.get("extracted",0),"needs_review":d.get("in_review",0),
-                                    "approved":d.get("approved",0),"posted":d.get("posted",0),"exception":d.get("exception",0)}
+            d = {r["status"]: r["count"] for r in rows}
+            def total(*names):
+                return sum(d.get(name, 0) for name in names)
+            return {
+                "new": total("received", "extracted", "scored", "vendor_resolved", "matched", "coded", "tax_checked"),
+                "needs_review": total("in_review"),
+                "approved": total("approved", "scheduled", "paid"),
+                "posted": total("posted", "reconciled", "closed"),
+                "exception": total("exception", "rejected", "resubmit", "quarantined"),
+            }
 
     def post_job_count(self, client_id, document_id):
         with self._tx(client_id): return self.conn.execute("select count(*) as count from jobs where document_id=%s and queue='post'", (document_id,)).fetchone()["count"]
@@ -230,14 +238,17 @@ class ControlService:
     def inbox(self, client_id, queue="needs_review"):
         statuses = {"new": ("received","extracted","scored","vendor_resolved","matched","coded","tax_checked"),
                     "needs_review": ("in_review",), "approved": ("approved","scheduled","paid"),
-                    "posted": ("posted","reconciled","closed"), "exception": ("exception","rejected","resubmit")}
+                    "posted": ("posted","reconciled","closed"),
+                    "exception": ("exception","rejected","resubmit","quarantined")}
         if queue not in statuses: raise ValueError("unknown queue")
         with self._tx(client_id):
-            rows = self.conn.execute("""select d.id as document_id,d.original_filename,d.status,d.received_at,
-                 c.payload->>'invoice_no' as invoice_no,c.payload->'vendor'->>'name' as vendor_name,
-                 coalesce((c.payload->>'total')::numeric,0) as total,r.score,r.band
+            rows = self.conn.execute("""select d.id as document_id,d.original_filename,d.status,d.status_reason,
+                 d.document_class,c.payload->>'invoice_no' as invoice_no,c.payload->'vendor'->>'name' as vendor_name,
+                 (c.payload->>'total')::numeric as total,r.score,r.band,ej.extract_state
               from documents d left join canonical_invoices c on c.document_id=d.id
               left join lateral(select score,band from risk_assessments where document_id=d.id order by id desc limit 1) r on true
+              left join lateral(select state as extract_state from jobs
+                                where document_id=d.id and queue='extract' order by id desc limit 1) ej on true
               where d.status=any(%s) order by d.received_at desc""", (list(statuses[queue]),)).fetchall()
             return [dict(r) for r in rows]
 
