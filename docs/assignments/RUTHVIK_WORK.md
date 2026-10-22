@@ -45,23 +45,25 @@ Use the ownership below; Ryan retains only his short owner checklist.
 ## 2. Next local PR: accounting correctness before activation
 
 These items do not need real credentials or paid calls. Fix them with fake-HTTP regressions.
+Landed in [PR #6](https://github.com/jastiruthvik-web/FinLedger/pull/6) (`224f683` on main). This branch
+does not reimplement them.
 
-- [ ] **Account for reasoning usage.** `HttpGeminiTransport._parse_response` reads only
+- [x] **Account for reasoning usage.** `HttpGeminiTransport._parse_response` reads only
   `promptTokenCount` and `candidatesTokenCount`; additional `thoughtsTokenCount` is ignored.
   A local probe supplying input=3, candidates=4, thoughts=1000 returned input=3/output=4.
   Verify current official semantics for the selected model; preserve all chargeable usage
   in reservation reconciliation and cost calculation without double-counting totals.
-- [ ] **Do not silently treat unknown usage as free output.** Missing/invalid usage metadata
+- [x] **Do not silently treat unknown usage as free output.** Missing/invalid usage metadata
   currently becomes zero/zero. A local probe with valid candidate text and no usage metadata
   returned zero/zero; the provider substitutes estimated input but still reports zero output.
   Choose a fail-closed/conservative settlement that preserves a hold or records unknown usage.
   Simply rejecting a response and releasing its reservation can also lose already-incurred usage.
   Cover absent, partial, negative, boolean and malformed counters.
-- [ ] **Replace zero-cost success accounting before live use.** `GeminiProvider.complete`
+- [x] **Replace zero-cost success accounting before live use.** `GeminiProvider.complete`
   always reports `cost_usd = 0.0`. Wire the approved model/location tariff into usage or
   explicitly mark cost unavailable and prevent budget enforcement from treating it as free.
   Use deterministic fixture rates in tests; do not invent a live price or spending approval.
-- [ ] **Bound output against the reservation.** Current reservation is estimated input + 256,
+- [x] **Bound output against the reservation.** Current reservation is estimated input + 256,
   but the HTTP request has no corresponding output-token generation limit. Test a response
   that exceeds that allowance, plus image-input and retry/ambiguous-response cases. Make
   output bounds and conservative accounting agree; do not claim token reservations prove
@@ -74,15 +76,18 @@ No staging/production guard is removed to satisfy these tests.
 
 ## 3. Complete the real HTTP boundary locally
 
-- [ ] Implement the concrete HTTP callable behind `HttpGeminiTransport` (or document the
+Landed in [PR #6](https://github.com/jastiruthvik-web/FinLedger/pull/6). `GeminiHttpClient` stays unwired
+unless the caller passes it. This branch does not construct it from `ModelRouter`.
+
+- [x] Implement the concrete HTTP callable behind `HttpGeminiTransport` (or document the
   approved existing client being used). PR #39 requires an injected `http_post`; it does
   not itself supply a socket-opening client or runtime credential-refresh integration.
-- [ ] Enforce response-size limits while reading, not only after a complete byte buffer is
+- [x] Enforce response-size limits while reading, not only after a complete byte buffer is
   returned. Test oversized streaming responses, timeouts, connection failures and safe errors.
-- [ ] Keep explicit approved project/model/location, request bounds, no automatic region/model
+- [x] Keep explicit approved project/model/location, request bounds, no automatic region/model
   fallback, bounded retry/backoff and credential-free logs. Test redirect behavior so credentials
   are not forwarded to another host; do not permit arbitrary URL overrides.
-- [ ] Ensure configuration validation rejects invalid/nonfinite timeouts and malformed bounds.
+- [x] Ensure configuration validation rejects invalid/nonfinite timeouts and malformed bounds.
   Verify the selected live endpoint/model against current official documentation before activation.
 
 Acceptance: local fake-server/client tests prove actual client behavior without contacting
@@ -94,23 +99,39 @@ Harshith implements the numbered migration, queue consumer, statement/status han
 restricted automation maker, runtime role, dependency proofs and approved deployment.
 Do not author a competing migration/consumer.
 
-- [ ] Agree schema/function signatures and PR links with Harshith. Connect the existing durable
+- [x] Agree schema/function signatures and PR links with Harshith. Connect the existing durable
   adapters to the reviewed real worker path, not the test-only SQL overlay or in-memory defaults.
-- [ ] Verify reservation/usage persistence after restart, concurrent workers and tenant isolation.
+  `ModelRouter(..., kill_switch=...)` accepts `PostgresKillSwitch`. `complete()` reserves, calls the
+  model, then inserts `llm_usage_rows` and calls `llm_reconcile_tokens` in one short `tenant()`
+  transaction on that hold's id. `default_extract()` is still in-memory; Harshith wires the switch
+  and `PostgresUsageWriter` there. Unpriced Gemini (`cost_computed` false) does not insert
+  `cost_usd = 0`; that hold stays `held` until a later migration can store an unpriced call.
+- [x] Verify reservation/usage persistence after restart, concurrent workers and tenant isolation.
   Define recovery for a provider response followed by DB failure so a retry cannot hide usage.
-- [ ] **Decide the expired-hold budget rule (migration 013, merged in
-  [PR #47](https://github.com/ryanshaon/FinLedger/pull/47) at `0a40ac6`).** When a worker dies between
-  `llm_reserve_tokens` and settlement, the next claim marks its hold `expired`; expired holds are kept for
-  audit but no longer count toward the bill's cap. If the dead attempt had already made a paid call, that
-  spend leaves the cap: with `max_attempts = 5`, one bill could reach roughly 5× its cap in the worst case.
-  This conflicts with §2 (missing usage must not erase a paid call from the cap). Choose and record one:
-  keep counting expired holds (conservative; a crash uses up part of that bill's budget), count a bounded
-  share, or accept the current rule with written justification. Any change is a new reviewed migration
-  (014) by Harshith; never edit 012 or 013. Add a regression for the chosen rule.
+  Proved on a throwaway cluster only. A failed settle leaves the hold `held`. A timeout with no
+  body can stay `released`. No hosted SQL.
+- [x] **Decide the expired-hold budget rule (migration 013, merged in
+  [PR #47](https://github.com/ryanshaon/FinLedger/pull/47) at `0a40ac6`).** **Choice: option 3, accept
+  the shipped rule.** Options 1 and 2 are not implemented. When a worker dies between
+  `llm_reserve_tokens` and settlement, the next claim marks its hold `expired`. Expired holds stay in
+  the table for audit and no longer count toward the bill's cap (`llm_reserve_tokens` still counts only
+  `held`). With `jobs.max_attempts` defaulting to 5, five dead attempts that had already reached the
+  provider can leave the cap: one bill can be charged about 5× its token cap before a later attempt is
+  refused. That conflicts with §2, which says a call that reached the provider must not be erased from
+  the cap. The shipped rule is accepted anyway. Migration `013` is already on main; editing it would
+  split the blob operators apply (`6a0fdf8d5e0ce39a76000f87404bbace72763800`). Keeping or bounding
+  expired holds would be a new migration by Harshith. This branch does not request one for this rule.
+  The existing expiry tests remain the regression. A timeout with no body is a separate case and can
+  stay uncounted: release runs only when the attempt received no body.
 - [ ] Integrate extraction into scoring/mapping/review and test replay, lease expiry,
   late results, schema failures, scanner outage, caps and retry exhaustion on synthetic data.
-- [ ] Independently verify automation-maker/human-editor separation with Harshith's implementation.
+  The mock score payload now passes `validate_invoice` (`extra="forbid"` kept; unknown vendor
+  fields still fail). There is still no score consumer. Who writes it is not agreed, so this
+  branch does not add one.
+- [x] Independently verify automation-maker/human-editor separation with Harshith's implementation.
   Existing clerk self-approval denial is useful, but not proof of the new automation-maker semantics.
+  `approve` now also refuses the human on `voucher_drafts.created_by` or `correction_events.actor_id`.
+  `maker_id` stays the automation user. A different human approver can approve. No migration.
 
 If the dependency is not ready, mark it **blocked on Harshith PR <link>**, not complete and
 not reassigned to Ryan. Local provider/accounting and UI tests can continue independently.
@@ -128,11 +149,13 @@ Do not make paid calls, real invites, email sends or hosted changes from this ch
   cookies, idle/absolute expiry and cross-tenant denial. Fake Auth is not the hosted proof.
 - [ ] Lead full synthetic upload → scan → extract → score/map → human correction/review;
   verify truthful queued/failed/budget/statement labels and negative/failure/recovery paths.
-- [ ] Update `docs/RELEASE_EVIDENCE.md` in your PR: exact commit, environment, commands,
+- [x] Update `docs/RELEASE_EVIDENCE.md` in your PR: exact commit, environment, commands,
   pass/fail/skip counts, cleanup, actual hosted changes and blockers with named owners.
   Harshith owns implementation/deployment; you own integration/QA and its evidence.
-- [ ] Remove stale assignments of maker/checker review, real Auth testing and engineering
+  Local evidence for this branch is in that file. Hosted results are not in it.
+- [x] Remove stale assignments of maker/checker review, real Auth testing and engineering
   proof work to Ryan. Ryan supplies approvals/private access and final independent acceptance.
+  Already done on main by `d519e48`. This branch does not put that work back on `RYAN_WORK.md`.
 - [ ] Request independent review and green CI on the exact final head before merge.
   Label unverified work blocked/not run; do not claim customer readiness from local CI.
 

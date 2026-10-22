@@ -55,3 +55,17 @@ def test_illegal_shortcut_from_extracted_to_approved_is_refused():
         transition("extracted", Action.APPROVE,
                    TransitionContext(actor_id="u2", actor_roles={Role.APPROVER}, maker_id="u1"))
 
+
+def test_editor_cannot_approve_when_the_maker_is_someone_else():
+    blocked = TransitionContext(
+        actor_id="editor", actor_roles={Role.APPROVER}, maker_id="automation", editor_ids=frozenset({"editor"}),
+    )
+    with pytest.raises(InvalidTransition, match="editor cannot approve"):
+        transition("in_review", Action.APPROVE, blocked)
+    assert transition(
+        "in_review", Action.APPROVE,
+        TransitionContext(
+            actor_id="other", actor_roles={Role.APPROVER}, maker_id="automation", editor_ids=frozenset({"editor"}),
+        ),
+    ) == "approved"
+

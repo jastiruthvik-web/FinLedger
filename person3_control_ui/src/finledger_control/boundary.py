@@ -16,6 +16,8 @@ class StrictModel(BaseModel):
 class Vendor(StrictModel):
     name: str = Field(min_length=1)
     gstin: str | None = None
+    pan: str | None = None
+    state: str | None = None
 
 
 class LineItem(StrictModel):
@@ -47,7 +49,7 @@ class CanonicalInvoiceBoundary(StrictModel):
     round_off: Decimal
     total: Decimal = Field(gt=0)
     line_items: list[LineItem] = Field(min_length=1)
-    bank_upi: dict | None = None
+    bank_upi: str | dict | None = None
     confidences: dict[str, float]
     raw_markdown_path: str
     page_image_paths: list[str]
