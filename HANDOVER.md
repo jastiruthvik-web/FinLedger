@@ -231,6 +231,21 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 Ruthvik post-Harshith (local):** Branch `feat/ruthvik-post-harshith`,
+[PR #7](https://github.com/jastiruthvik-web/FinLedger/pull/7). Behavior measured at
+`614d47d87475ea611722bdb247e345cb7c490556`. Expired-hold choice is option 3: keep migration
+013's rule (expired holds do not count; the 5× cap case is accepted; a timeout with no body
+can stay uncounted). No edit to migrations 012 or 013, no migration 014, and `default_extract()`
+is still the in-memory writer and router. Adapters settle a priced call on the real reservation
+id; an unpriced Gemini success does not insert `cost_usd = 0`. Mock score payloads pass
+`validate_invoice` with `extra="forbid"` kept. A human who drafted or corrected a bill cannot
+approve it; the automation user stays the maker. Step 0 on `dbdf307` was AI **154** / platform
+**360** / UI **64**, mock **3/3 + 6/6**. This commit's suites: AI **165** / platform **360** /
+UI **69**, mock **3/3 + 6/6**, 0 failed, 0 skipped. No hosted SQL, Auth, S3, Resend, or model
+call. Docker was not installed, so the image job was not run locally. Score-consumer ownership
+is still not agreed. Evidence: [docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md). Handover
+for the remaining worker wiring: [docs/HARSHITH_HANDOVER.md](docs/HARSHITH_HANDOVER.md).
+
 **2026-10-22 Ruthvik review follow-ups (local):** Branch `feat/ruthvik-review-followups`.
 Code measured in this note is `8a0c6bebf9d83fef86765361f165f1b36eb73a7c` (cherry-pick of
 `8a4d97b` onto `d519e48`, then accounting and a loopback HTTP client). The three assignment

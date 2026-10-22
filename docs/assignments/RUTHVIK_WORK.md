@@ -149,9 +149,10 @@ Do not make paid calls, real invites, email sends or hosted changes from this ch
   cookies, idle/absolute expiry and cross-tenant denial. Fake Auth is not the hosted proof.
 - [ ] Lead full synthetic upload → scan → extract → score/map → human correction/review;
   verify truthful queued/failed/budget/statement labels and negative/failure/recovery paths.
-- [ ] Update `docs/RELEASE_EVIDENCE.md` in your PR: exact commit, environment, commands,
+- [x] Update `docs/RELEASE_EVIDENCE.md` in your PR: exact commit, environment, commands,
   pass/fail/skip counts, cleanup, actual hosted changes and blockers with named owners.
   Harshith owns implementation/deployment; you own integration/QA and its evidence.
+  Local evidence for this branch is in that file. Hosted results are not in it.
 - [x] Remove stale assignments of maker/checker review, real Auth testing and engineering
   proof work to Ryan. Ryan supplies approvals/private access and final independent acceptance.
   Already done on main by `d519e48`. This branch does not put that work back on `RYAN_WORK.md`.
