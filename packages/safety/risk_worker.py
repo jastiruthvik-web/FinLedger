@@ -3,8 +3,7 @@ import os
 import re
 from contracts.schemas import CanonicalInvoice, VoucherDraft, RiskScore
 from usage.model_router import ModelRouter
-from usage.provider import persisted_cost_usd
-from usage.usage_writer import UsageWriter
+from usage.usage_writer import UsageWriter, log_provider_usage
 
 class RiskWorker:
     def __init__(self, usage_writer: UsageWriter, router: ModelRouter | None = None):
@@ -31,19 +30,19 @@ class RiskWorker:
         
         response_text = self._call_llm(model, prompt_template, inv_json, dr_json)
         
-        # Log usage
         tokens_in = len(prompt_template + inv_json + dr_json) // 4
         tokens_out = len(response_text) // 4
-        
-        self.usage_writer.log_usage(
+        response = getattr(self, "_provider_response", None)
+        log_provider_usage(
+            self.usage_writer,
+            response,
             client_id=client_id,
             doc_id=invoice.document_id,
             model=model,
-            tokens_in=getattr(getattr(self, "_provider_response", None), "tokens_in", max(1, tokens_in)),
-            tokens_out=getattr(getattr(self, "_provider_response", None), "tokens_out", max(1, tokens_out)),
-            latency_ms=getattr(getattr(self, "_provider_response", None), "latency_ms", 800),
-            cost_usd=persisted_cost_usd(getattr(self, "_provider_response", None)),
-            purpose="risk_llm"
+            purpose="risk_llm",
+            tokens_in=getattr(response, "tokens_in", max(1, tokens_in)),
+            tokens_out=getattr(response, "tokens_out", max(1, tokens_out)),
+            latency_ms=getattr(response, "latency_ms", 800),
         )
         
         clean_json = re.sub(r'```json|```', '', response_text).strip()

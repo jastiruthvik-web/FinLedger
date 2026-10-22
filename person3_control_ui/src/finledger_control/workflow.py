@@ -54,6 +54,7 @@ class TransitionContext:
     actor_roles: set[Role]
     maker_id: str | None = None
     approved_by: str | None = None
+    editor_ids: frozenset[str] = frozenset()
 
 
 def decide_route(band: str, total: float, policy: Policy) -> Route:
@@ -85,6 +86,8 @@ def transition(current: str, action: Action, ctx: TransitionContext) -> str:
             raise InvalidTransition(f"cannot approve from {current}")
         if ctx.actor_id == ctx.maker_id:
             raise InvalidTransition("self-approve is forbidden")
+        if ctx.actor_id in ctx.editor_ids:
+            raise InvalidTransition("editor cannot approve their own draft")
         if not ({Role.APPROVER, Role.FIRM_ADMIN} & ctx.actor_roles):
             raise InvalidTransition("approver role required")
         return "approved"

@@ -3,7 +3,7 @@ from extract.extract_worker import ExtractWorker
 from extract.failures import ExtractFailure, MISSING_EXTRACT_INPUT, STATEMENT_NOT_EXTRACTED, VISION_PAGE_CAP
 from extract.input_policy import DEFAULT_MAX_IMAGE_BYTES, validate_page_image_bytes
 from extract.object_keys import require_tenant_object_keys
-from usage.provider import persisted_cost_usd
+from usage.usage_writer import log_provider_usage
 
 
 class ExtractionDispatcher:
@@ -56,15 +56,16 @@ class ExtractionDispatcher:
             },
         )
         invoice = self.worker._parse_invoice_json(response.text)
-        self.worker.usage_writer.log_usage(
-            client_id,
-            document_id,
-            model,
-            response.tokens_in,
-            response.tokens_out,
-            response.latency_ms,
-            persisted_cost_usd(response),
-            "extract_vision",
+        log_provider_usage(
+            self.worker.usage_writer,
+            response,
+            client_id=client_id,
+            doc_id=document_id,
+            model=model,
+            purpose="extract_vision",
+            tokens_in=response.tokens_in,
+            tokens_out=response.tokens_out,
+            latency_ms=response.latency_ms,
         )
         if paths:
             invoice = invoice.model_copy(update={"page_image_paths": paths})

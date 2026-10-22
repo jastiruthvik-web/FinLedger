@@ -125,19 +125,29 @@ class ControlService:
             values(%s,%s,%s,%s,%s,%s) on conflict(job_id) do nothing""",
             (client_id, document_id, revision, job["id"], payload["idempotency_key"], request_hash))
 
+    def _editor_ids(self, document_id, created_by) -> frozenset[str]:
+        rows = self.conn.execute(
+            "select actor_id from correction_events where document_id=%s", (document_id,)
+        ).fetchall()
+        editors = {str(created_by)}
+        editors.update(str(row["actor_id"]) for row in rows)
+        return frozenset(editors)
+
     def approve(self, client_id, document_id, actor_id, *, post, expected_revision):
         with self._tx(client_id):
-            row = self.conn.execute("""select d.status,v.revision,c.maker_id from documents d
+            row = self.conn.execute("""select d.status,v.revision,c.maker_id,v.created_by from documents d
                 join voucher_drafts v on v.document_id=d.id join canonical_invoices c on c.document_id=d.id
                 where d.id=%s for update of d,v""", (document_id,)).fetchone()
             if not row: raise NotFound("review not found")
-            if row["status"] == "approved" and row["revision"] == expected_revision:
+            actor, maker = str(actor_id), str(row["maker_id"])
+            editors = self._editor_ids(document_id, row["created_by"])
+            if row["status"] == "approved" and row["revision"] == expected_revision and actor != maker and actor not in editors:
                 if post: self._enqueue_post(client_id, document_id, row["revision"])
                 return {"status":"approved","revision":row["revision"]}
             if row["revision"] != expected_revision: raise Conflict(f"revision changed from {expected_revision} to {row['revision']}")
             roles = self._roles(actor_id, client_id)
             try: new = transition(row["status"], Action.APPROVE_DRAFT if not post else Action.APPROVE,
-                                  TransitionContext(str(actor_id), roles, maker_id=str(row["maker_id"])))
+                                  TransitionContext(actor, roles, maker_id=maker, editor_ids=editors))
             except InvalidTransition as exc: raise Forbidden(str(exc)) from exc
             self.conn.execute("update documents set status=%s,updated_at=now() where id=%s", (new, document_id))
             self._event(client_id, document_id, row["status"], new, "approve_and_post" if post else "approve_draft", actor_id)

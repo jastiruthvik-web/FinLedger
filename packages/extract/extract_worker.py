@@ -6,8 +6,7 @@ from contracts.schemas import CanonicalInvoice
 from extract.failures import ExtractFailure, INVALID_MODEL_OUTPUT
 from extract.input_policy import minimize_invoice_markdown
 from usage.model_router import ModelRouter
-from usage.provider import persisted_cost_usd
-from usage.usage_writer import UsageWriter
+from usage.usage_writer import UsageWriter, log_provider_usage
 
 class ExtractWorker:
     def __init__(self, usage_writer: UsageWriter, router: ModelRouter | None = None):
@@ -47,16 +46,17 @@ class ExtractWorker:
             prompt_template = f.read()
             
         response_text = self._call_llm(model, prompt_template, markdown)
-        
-        self.usage_writer.log_usage(
+        response = getattr(self, "_provider_response", None)
+        log_provider_usage(
+            self.usage_writer,
+            response,
             client_id=client_id,
             doc_id=document_id,
             model=model,
-            tokens_in=getattr(getattr(self, "_provider_response", None), "tokens_in", max(1, len(markdown) // 4)),
-            tokens_out=getattr(getattr(self, "_provider_response", None), "tokens_out", max(1, len(response_text) // 4)),
-            latency_ms=getattr(getattr(self, "_provider_response", None), "latency_ms", 1000),
-            cost_usd=persisted_cost_usd(getattr(self, "_provider_response", None)),
-            purpose="extract"
+            purpose="extract",
+            tokens_in=getattr(response, "tokens_in", max(1, len(markdown) // 4)),
+            tokens_out=getattr(response, "tokens_out", max(1, len(response_text) // 4)),
+            latency_ms=getattr(response, "latency_ms", 1000),
         )
         
         invoice = self._parse_invoice_json(response_text)

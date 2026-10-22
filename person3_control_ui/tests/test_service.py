@@ -1,8 +1,13 @@
+import hashlib
+import uuid
 from datetime import date
 
+import psycopg
 import pytest
+from psycopg.rows import dict_row
 
 from finledger_control.service import ControlService, Conflict, Forbidden
+from finledger_platform.db import tenant
 
 
 def canonical(document_id, **overrides):
@@ -193,4 +198,92 @@ def test_erp_callback_rejects_stale_revision_and_persists_success(conn, world, d
     with svc._tx(world["client"]["id"]):
         row = conn.execute("select erp_id,result from posting_attempts where job_id=%s", (job["id"],)).fetchone()
         assert row["erp_id"] == "TALLY-1" and row["result"] == "posted"
+
+
+def _automation_and_editor(owner_dsn, world):
+    client_id = world["client"]["id"]
+    with psycopg.connect(owner_dsn, autocommit=True, row_factory=dict_row) as owner:
+        maker = owner.execute(
+            """select id, auth_subject, api_token_hash, firm_admin, automation
+               from users where firm_id = %s and automation""",
+            (world["client"]["firm_id"],),
+        ).fetchone()
+        assert maker["automation"] is True
+        assert maker["auth_subject"] is None and maker["api_token_hash"] is None and maker["firm_admin"] is False
+        assert owner.execute(
+            "select count(*) as n from client_members where user_id = %s", (maker["id"],)
+        ).fetchone()["n"] == 0
+        editor_id = owner.execute(
+            """insert into users (firm_id, email, name, firm_admin)
+               values (%s, 'editor-approver@sharma.test', 'Editor', false) returning id""",
+            (world["client"]["firm_id"],),
+        ).fetchone()["id"]
+        owner.execute(
+            "insert into client_members (client_id, user_id, role) values (%s, %s, 'approver')",
+            (client_id, editor_id),
+        )
+    return maker["id"], editor_id
+
+
+def _another_document(conn, world):
+    client_id = world["client"]["id"]
+    document_id = str(uuid.uuid4())
+    with tenant(conn, client_id):
+        conn.execute(
+            """insert into documents(id,client_id,channel,object_path,original_filename,content_hash,mime,size_bytes,status,virus_ok,source_meta)
+               values (%s,%s,'link',%s,'invoice.pdf',%s,'application/pdf',100,'extracted',true,'{}')""",
+            (document_id, client_id, f"{client_id}/2026/10/{document_id}/raw.pdf",
+             hashlib.sha256(document_id.encode()).hexdigest()),
+        )
+    return document_id
+
+
+def test_draft_author_cannot_approve_when_automation_is_maker(conn, world, document, owner_dsn):
+    maker_id, editor_id = _automation_and_editor(owner_dsn, world)
+    svc = ControlService(conn)
+    svc.score(world["client"]["id"], document, canonical(document), maker_id)
+    routed = svc.submit_draft(world["client"]["id"], document, draft(document), editor_id)
+    with pytest.raises(Forbidden, match="editor cannot approve"):
+        svc.approve(world["client"]["id"], document, editor_id, post=False, expected_revision=routed["revision"])
+    approved = svc.approve(
+        world["client"]["id"], document, world["approver"], post=False, expected_revision=routed["revision"],
+    )
+    assert approved["status"] == "approved"
+    with svc._tx(world["client"]["id"]):
+        stored = conn.execute(
+            "select maker_id from canonical_invoices where document_id=%s", (document,)
+        ).fetchone()["maker_id"]
+    assert str(stored) == str(maker_id)
+    with psycopg.connect(owner_dsn, row_factory=dict_row) as owner:
+        maker = owner.execute(
+            "select auth_subject, api_token_hash, firm_admin from users where id=%s", (maker_id,)
+        ).fetchone()
+        roles = owner.execute(
+            "select count(*) as n from client_members where user_id=%s", (maker_id,)
+        ).fetchone()["n"]
+    assert maker["auth_subject"] is None and maker["api_token_hash"] is None and maker["firm_admin"] is False
+    assert roles == 0
+
+
+def test_corrector_cannot_approve_when_automation_is_maker(conn, world, owner_dsn):
+    maker_id, editor_id = _automation_and_editor(owner_dsn, world)
+    document = _another_document(conn, world)
+    svc = ControlService(conn)
+    svc.score(world["client"]["id"], document, canonical(document), maker_id)
+    routed = svc.submit_draft(world["client"]["id"], document, draft(document), world["clerk"])
+    edited = svc.edit_field(
+        world["client"]["id"], document, editor_id, "party_ledger", "Edited ledger",
+        expected_revision=routed["revision"],
+    )
+    with pytest.raises(Forbidden, match="editor cannot approve"):
+        svc.approve(world["client"]["id"], document, editor_id, post=False, expected_revision=edited["revision"])
+    approved = svc.approve(
+        world["client"]["id"], document, world["approver"], post=False, expected_revision=edited["revision"],
+    )
+    assert approved["status"] == "approved"
+    with svc._tx(world["client"]["id"]):
+        stored = conn.execute(
+            "select maker_id from canonical_invoices where document_id=%s", (document,)
+        ).fetchone()["maker_id"]
+    assert str(stored) == str(maker_id)
 

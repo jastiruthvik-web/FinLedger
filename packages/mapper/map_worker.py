@@ -6,8 +6,7 @@ import uuid
 
 from contracts.schemas import CanonicalInvoice, VoucherDraft, MapTrace, MapResult
 from usage.model_router import ModelRouter
-from usage.provider import persisted_cost_usd
-from usage.usage_writer import UsageWriter
+from usage.usage_writer import UsageWriter, log_provider_usage
 from rag.retriever import Retriever
 
 class MapWorker:
@@ -55,18 +54,19 @@ class MapWorker:
         # LLM Call
         response_text = self._call_llm(model, prompt_template, invoice_json, chunk_context, policy)
         
-        # Log usage
         tokens_in = len(prompt_template + invoice_json + chunk_context + policy) // 4
         tokens_out = len(response_text) // 4
-        usage_row = self.usage_writer.log_usage(
+        response = getattr(self, "_provider_response", None)
+        usage_row = log_provider_usage(
+            self.usage_writer,
+            response,
             client_id=client_id,
             doc_id=invoice.document_id,
             model=model,
-            tokens_in=getattr(getattr(self, "_provider_response", None), "tokens_in", max(1, tokens_in)),
-            tokens_out=getattr(getattr(self, "_provider_response", None), "tokens_out", max(1, tokens_out)),
-            latency_ms=getattr(getattr(self, "_provider_response", None), "latency_ms", 1200),
-            cost_usd=persisted_cost_usd(getattr(self, "_provider_response", None)),
-            purpose="map"
+            purpose="map",
+            tokens_in=getattr(response, "tokens_in", max(1, tokens_in)),
+            tokens_out=getattr(response, "tokens_out", max(1, tokens_out)),
+            latency_ms=getattr(response, "latency_ms", 1200),
         )
         
         clean_json = re.sub(r'```json|```', '', response_text).strip()
