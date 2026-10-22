@@ -4,6 +4,7 @@
 
 -- ---------- Part A: before applying 012 (read-only) ----------
 
+select version(), current_setting('server_version_num')::int >= 160000 as pg16_or_newer;  -- Part C needs true
 select string_agg(name, ',' order by name) as applied from public.schema_migrations;
 select exists (select from pg_tables where schemaname = 'public' and tablename = 'llm_usage_rows') as has_012_tables,
        exists (select from information_schema.columns
@@ -19,7 +20,7 @@ select r.rolname, exists (select from pg_roles p where p.rolname = r.rolname) as
 
 -- ---------- Part B: after applying 012 (read-only) ----------
 
-select name, applied_at from public.schema_migrations where name = '012_ai_durable_state.sql';
+select name, applied_at from public.schema_migrations where name in ('012_ai_durable_state.sql', '013_llm_orphaned_holds.sql');
 select relname, relrowsecurity as rls from pg_class
  where relname in ('llm_usage_rows', 'llm_token_reservations') and relnamespace = 'public'::regnamespace order by 1;
 select table_name, grantee, string_agg(privilege_type, ',' order by privilege_type) as privs
@@ -28,7 +29,8 @@ select table_name, grantee, string_agg(privilege_type, ',' order by privilege_ty
    and grantee <> (select tableowner from pg_tables where tablename = 'llm_usage_rows')
  group by 1, 2 order by 1, 2;
 select f.sig, r.rolname from (values ('llm_reserve_tokens(uuid,uuid,uuid,int,int)'), ('llm_reconcile_tokens(uuid)'),
-                                     ('llm_release_tokens(uuid)'), ('automation_maker_id(uuid)')) f(sig)
+                                     ('llm_release_tokens(uuid)'), ('automation_maker_id(uuid)'),
+                                     ('llm_expire_orphaned_tokens(uuid,uuid,bigint,uuid)')) f(sig)  -- 013
   join pg_roles r on r.rolname in ('anon', 'authenticated', 'service_role', 'finledger_app',
                                    'finledger_worker_extract', 'finledger_worker_score', 'finledger_worker_map')
  where has_function_privilege(r.rolname, f.sig, 'execute') order by 1, 2;
@@ -37,6 +39,14 @@ select (select count(*) from firms) as firms, (select count(*) from users where 
 
 -- ---------- Part C: rollback-only tenant proof (after 012) ----------
 -- Creates a transaction-local role and synthetic tenants, records pass/fail, then rolls everything back.
+-- Needs PostgreSQL 16+ (GRANT ... WITH SET); on older servers it stops here before writing anything.
+
+do $$
+begin
+  if current_setting('server_version_num')::int < 160000 then
+    raise exception 'Part C needs PostgreSQL 16 or newer (found %); stop and report the version', current_setting('server_version');
+  end if;
+end $$;
 
 begin;
 create role zz_proof_012 nologin;

@@ -1,6 +1,8 @@
 """extract worker: settlement, guards, replay, retries/dead letters and lost leases, as the RLS-bound app role."""
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from conftest import invoice_pdf, statement_xlsx
 from psycopg.types.json import Jsonb
@@ -169,6 +171,18 @@ def test_lease_expired_while_settling_rolls_back(world, client, conn, store, set
     assert run_once(conn, store, Recorder(during=expire)) == "lease_lost"
     assert doc_row(conn, world, doc_id)["status"] == "received"
     assert jobs(conn, world.a["id"], "score") == []
+
+
+def test_reclaimed_job_expires_the_dead_attempts_token_hold(world, client, conn, store, settings, owner):
+    doc_id = ingested(world, client, conn, store, settings)
+    dead = conn.execute("select * from claim_job('extract', 300)").fetchone()
+    stale = str(uuid.uuid4())
+    with tenant(conn, world.a["id"]):  # the dead attempt reserved, then never settled
+        conn.execute("select llm_reserve_tokens(%s, %s, %s, 50, 100)", (world.a["id"], doc_id, stale))
+    owner.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (dead["id"],))
+    assert run_once(conn, store, Recorder()) == "extracted"
+    assert owner.execute("select state from llm_token_reservations where reservation_id = %s",
+                         (stale,)).fetchone()[0] == "expired"
 
 
 def test_person1_mock_dispatcher_end_to_end(world, client, conn, store, settings, monkeypatch):

@@ -11,7 +11,7 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 
 from conftest import APP_PASSWORD
-from finledger_platform import tenancy
+from finledger_platform import queue, tenancy
 from finledger_platform.db import firm, migrate, tenant
 
 
@@ -191,7 +191,7 @@ def _seed_old_rows(dsn, refs):
 def test_upgrade_backfills_refs_and_maker_for_existing_firms(scratch_db):
     _apply_through_011(scratch_db)
     firm_id = _seed_old_rows(scratch_db, ["", "", "memory:1"])
-    assert migrate(scratch_db) == ["012_ai_durable_state.sql"]
+    assert migrate(scratch_db) == ["012_ai_durable_state.sql", "013_llm_orphaned_holds.sql"]
     with psycopg.connect(scratch_db) as c:
         refs = sorted(r[0] for r in c.execute("select ref from rag_chunks"))
         assert refs[-1] == "memory:1" and all(r.startswith("legacy:") for r in refs[:2])
@@ -207,3 +207,70 @@ def test_upgrade_refuses_duplicate_refs_instead_of_deleting(scratch_db):
     with psycopg.connect(scratch_db) as c:
         assert c.execute("select count(*) from rag_chunks").fetchone()[0] == 2
         assert c.execute("select count(*) from schema_migrations where name like '012%'").fetchone()[0] == 0
+
+
+# ---------- 013: orphaned holds ----------
+
+def claimed(conn, client_id, doc_id, q="extract"):
+    with tenant(conn, client_id):
+        queue.enqueue(conn, q, client_id, doc_id)
+    return queue.claim(conn, q)
+
+
+def expire_orphans(conn, client_id, doc_id, job):
+    with tenant(conn, client_id):
+        return conn.execute("select llm_expire_orphaned_tokens(%s, %s, %s, %s) as n",
+                            (client_id, doc_id, job["id"], job["claim_token"])).fetchone()["n"]
+
+
+def hold_state(owner, rid):
+    return owner.execute("select state from llm_token_reservations where reservation_id = %s", (rid,)).fetchone()[0]
+
+
+def test_dead_attempt_hold_expires_on_reclaim_and_frees_the_cap(world, conn, owner):
+    a = world.a["id"]
+    doc = new_doc(conn, a)
+    first = claimed(conn, a, doc)
+    stale = reserve(conn, a, doc, 60)  # the worker dies here, before settlement
+    owner.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (first["id"],))
+    second = queue.claim(conn, "extract")
+    assert second["id"] == first["id"] and second["claim_token"] != first["claim_token"]
+
+    assert expire_orphans(conn, a, doc, second) == 1
+    assert hold_state(owner, stale) == "expired"
+    assert expire_orphans(conn, a, doc, second) == 0  # replay is a no-op
+    reserve(conn, a, doc, 60)  # 60 + 60 > 100 would fail if the expired hold still counted
+    with pytest.raises(psycopg.Error, match="unknown_reservation"):
+        with tenant(conn, a):
+            conn.execute("select llm_reconcile_tokens(%s)", (stale,))
+    assert hold_state(owner, stale) == "expired"
+
+
+def test_live_holds_are_kept(world, conn, owner):
+    a = world.a["id"]
+    doc = new_doc(conn, a)
+    job = claimed(conn, a, doc)
+    mine = reserve(conn, a, doc, 10)  # made under this claim
+    assert expire_orphans(conn, a, doc, job) == 0 and hold_state(owner, mine) == "held"
+
+    owner.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (job["id"],))
+    reclaimed = queue.claim(conn, "extract")
+    other = claimed(conn, a, doc, "score")  # another stage still runs this bill under a live lease
+    assert other["document_id"] == doc
+    assert expire_orphans(conn, a, doc, reclaimed) == 0 and hold_state(owner, mine) == "held"
+
+
+def test_expiry_requires_the_tenant_and_a_live_lease(world, conn, owner):
+    a, b = world.a["id"], world.b["id"]
+    doc = new_doc(conn, a)
+    job = claimed(conn, a, doc)
+    with pytest.raises(psycopg.Error, match="tenant_mismatch"):
+        with tenant(conn, b):
+            conn.execute("select llm_expire_orphaned_tokens(%s, %s, %s, %s)", (a, doc, job["id"], job["claim_token"]))
+    with pytest.raises(psycopg.Error, match="live_lease_required"):
+        expire_orphans(conn, a, doc, {**job, "claim_token": uuid.uuid4()})
+    owner.execute("update jobs set locked_until = now() - interval '1 second' where id = %s", (job["id"],))
+    with pytest.raises(psycopg.Error, match="live_lease_required"):
+        expire_orphans(conn, a, doc, job)
+    sig = "llm_expire_orphaned_tokens(uuid,uuid,bigint,uuid)"
+    assert not owner.execute("select has_function_privilege('finledger_app', %s, 'execute')", (sig,)).fetchone()[0]
