@@ -13,6 +13,17 @@ class ProviderResponse:
     tokens_out: int
     latency_ms: int = 0
     cost_usd: float = 0.0
+    cost_computed: bool = True
+    usage_known: bool = True
+
+
+def persisted_cost_usd(response: object | None) -> float | None:
+    """Cost to store. Mock keeps its zero default. An unpriced Gemini success is not stored as 0."""
+    if response is None:
+        return 0.0
+    if getattr(response, "cost_computed", True) is False:
+        return None
+    return float(getattr(response, "cost_usd", 0.0))
 
 
 def _tokens(value: str) -> int:

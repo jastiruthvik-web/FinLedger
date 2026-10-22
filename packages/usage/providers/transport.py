@@ -5,8 +5,9 @@ from typing import Any, Protocol
 
 
 class TransportError(Exception):
-    def __init__(self, code: str, message: str = ""):
+    def __init__(self, code: str, message: str = "", *, body_received: bool = False):
         self.code = code
+        self.body_received = body_received
         super().__init__(message or code)
 
 
@@ -16,6 +17,7 @@ class TransportResponse:
     tokens_in: int
     tokens_out: int
     latency_ms: int = 0
+    usage_known: bool = True
 
 
 class GeminiTransport(Protocol):

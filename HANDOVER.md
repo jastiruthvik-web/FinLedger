@@ -231,6 +231,21 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 Ruthvik review follow-ups (local):** Branch `feat/ruthvik-review-followups`.
+Code measured in this note is `8a0c6bebf9d83fef86765361f165f1b36eb73a7c` (cherry-pick of
+`8a4d97b` onto `d519e48`, then accounting and a loopback HTTP client). The three assignment
+files stayed `RYAN_WORK.md`, `HARSHITH_WORK.md`, and `RUTHVIK_WORK.md`. No hosted SQL, Auth,
+S3, Resend, model endpoint, or Person 4 edits. Migrations `001`–`011` were not edited or
+reapplied. `--live-synthetic-eval` was not run. Docker is not installed here, so the CI
+image job was not run locally.
+
+Python 3.12.3, uv 0.10.9, PostgreSQL 16 `initdb` on `PATH` via
+`/usr/lib/postgresql/16/bin`. `pytest packages evals` **154 passed**, mock evals **3/3 + 6/6**,
+platform **333 passed**, control UI **64 passed**. No pytest failures or skips. `staging` and
+`production` still refuse both `mock` and `gemini`. Token holds are not a dollar cap. A timeout
+with no response body can stay uncounted. Gemini cost is fixture-only until a tariff is
+approved. Evidence: [docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md).
+
 **2026-10-22 three-owner cleanup:** Consolidated all active assignments into RYAN_WORK,
 HARSHITH_WORK and RUTHVIK_WORK under `docs/assignments/`. Ruthvik's original release scope
 and review follow-ups are together; Harshith retains backend/handover tasks; Ryan stays reduced.

@@ -10,7 +10,7 @@ class MapTrace(BaseModel):
     model_name: str
     tokens_in: int
     tokens_out: int
-    cost_usd: float
+    cost_usd: float | None
 
 
 class MapResult(BaseModel):

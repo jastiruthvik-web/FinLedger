@@ -10,7 +10,7 @@ class UsageRow:
     tokens_in: int
     tokens_out: int
     latency_ms: int
-    cost_usd: float
+    cost_usd: float | None
     purpose: str
     timestamp: str
 
@@ -26,7 +26,7 @@ class UsageWriter:
         tokens_in: int,
         tokens_out: int,
         latency_ms: int,
-        cost_usd: float,
+        cost_usd: float | None,
         purpose: str
     ) -> UsageRow:
         row = UsageRow(
