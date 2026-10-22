@@ -8,7 +8,7 @@ from usage.kill_switch import KillSwitch, Reservation, TokenCapExceededException
 
 
 class PostgresKillSwitch(KillSwitch):
-    """Durable token reservations on Postgres (ephemeral overlay SQL in tests)."""
+    """Durable token reservations on Postgres (platform migration 012 functions)."""
 
     def __init__(self, conn: psycopg.Connection, limit: int = 20000, enabled: bool = True):
         super().__init__(limit=limit, enabled=enabled)

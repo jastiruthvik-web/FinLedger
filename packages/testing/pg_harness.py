@@ -13,7 +13,6 @@ import psycopg
 import pytest
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-SQL_PATH = Path(__file__).parent / "sql" / "ai_durable_ephemeral.sql"
 APP_PASSWORD = "fl_app_test_pw"
 
 
@@ -77,10 +76,8 @@ def ai_owner_dsn():
 def ai_app_dsn(ai_owner_dsn):
     from finledger_platform.db import migrate
 
-    migrate(ai_owner_dsn)
-    overlay = SQL_PATH.read_text(encoding="utf-8")
+    migrate(ai_owner_dsn)  # numbered migrations only, including 012 durable AI state
     with psycopg.connect(ai_owner_dsn, autocommit=True) as owner:
-        owner.execute(overlay)
         owner.execute("drop role if exists fl_app")
         owner.execute(f"create role fl_app login password '{APP_PASSWORD}' in role finledger_app")
         owner.execute(
