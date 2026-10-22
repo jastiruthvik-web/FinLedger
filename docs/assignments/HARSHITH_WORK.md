@@ -1,7 +1,10 @@
 # Harshith — Remaining staging and deployment work
 
-Updated 2026-10-22 after [PR #41](https://github.com/ryanshaon/FinLedger/pull/41)
-merged into main at `1c7d8a0`. This is your only active assignment file.
+Updated 2026-10-22 after [PR #41](https://github.com/ryanshaon/FinLedger/pull/41) (`1c7d8a0`) and
+[PR #45](https://github.com/ryanshaon/FinLedger/pull/45) (`00ffd0a`) merged into main. This is your only active assignment file.
+
+**Status: not complete.** Local backend and rollout preparation are done. All hosted tasks in §2 are open,
+and the local items in §2a can be done now without credentials.
 
 ## 1. Completed — do not rebuild
 
@@ -17,7 +20,12 @@ merged into main at `1c7d8a0`. This is your only active assignment file.
 **71 AI / 356 platform / 55 UI tests passed**, mock **3/3 + 6/6**, test/image jobs green.
 These are CI results for the reviewed PR, not a new local run.
 
-**Local backend milestone completed. Hosted operations are not completed.**
+- PR #45 (documentation only): migration 012 staging rollout procedure and per-process runtime login
+  table in the runbook; read-only/rollback-only checks in `docs/sql/migration_012_staging_checks.sql`;
+  exact missing inputs and the Ruthvik integration contract below. Validated on local PostgreSQL 16 with
+  a superuser owner only; no hosted state read or changed. CI green on `f7e8ca4`.
+
+**Local backend milestone and rollout preparation completed. Hosted operations are not completed.**
 Migration 012 is committed but documented as **not applied hosted**; verify actual history before any action.
 
 ## 2. Remaining work, in order
@@ -28,7 +36,7 @@ and [Auth design](../plans/AUTH_SUPABASE_DESIGN.md) first. Use synthetic data on
 | Task | Prerequisite | Completion evidence |
 |---|---|---|
 | Confirm current hosted state and access needs | Owner-approved access | Redacted checklist of schema/runtime/storage/Auth state; no secret values |
-| Prepare migration 012 staging rollout | Independent SQL/security review and explicit hosted approval | Existing data checked for duplicate RAG refs; exact committed migration identified; recovery/compatible-image plan recorded |
+| Prepare migration 012 staging rollout | Independent SQL/security review and explicit hosted approval | Procedure, commit/blob and recovery plan done in PR #45. Still open: run Part A on staging (duplicate RAG refs, roles) and record the result |
 | Apply migration 012 once, if approved and not already applied | Approved rollout and privately entered migration credentials | Recorded commit, migration-history result, schema/RLS/grant checks and rollback-only tenant proof |
 | Create/verify restricted runtime login and worker roles | Owner supplies password privately; approved grants | Session-pooler connection uses non-owner/non-BYPASSRLS login; per-process least privilege and cross-tenant denial proven |
 | Verify real private storage | Owner-private S3 configuration | Synthetic put/get/presign, unsigned-public denial and cleanup result; explicitly resolve any leftover test object |
@@ -56,6 +64,28 @@ No hosted state was read or changed. Exact missing inputs:
 | Email | Verified Resend domain, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, inbound domain/webhook secret/authserv id, synthetic-send approval |
 | Hosting | Account, budget, region, API and control UI origins, stable `FINLEDGER_SIGNING_SECRET`/`FINLEDGER_ENC_KEY`, `SUPABASE_PUBLISHABLE_KEY`/`SUPABASE_SECRET_KEY` and Auth dashboard settings (Auth design §3.4, §6) |
 | Extraction | Provider/model/location/retention/budget approval, then Ruthvik's transport; until then `extract-worker` refuses to start hosted |
+
+## 2a. Next local work (no credentials needed)
+
+- [ ] **Check the 012 checks under Supabase-like permissions.** PR #45 ran them only as a local superuser.
+  Rerun Parts A–C locally with a non-superuser owner that has `CREATEROLE` (as Supabase's `postgres` role does)
+  and fix anything that fails. Part C uses `GRANT ... WITH SET`, which needs PostgreSQL 16+: record the staging
+  server version as the first step of Part A and add a fallback or a clear stop for older versions.
+- [ ] **Recover stuck token holds.** A worker that dies between `llm_reserve_tokens` and settlement leaves a
+  `held` row with no expiry, which blocks that bill's cap forever. Agree the approach with Ruthvik, then implement
+  it as a new reviewed migration (013) or worker sweep, never by editing 012. Tests: expired hold released,
+  live hold kept, cross-tenant sweep denied, replay safe.
+- [ ] **Wire durable adapters into the worker.** Once Ruthvik's adapter/router injection change lands, connect
+  `PostgresKillSwitch` and `PostgresUsageWriter` in `default_extract()` with the worker pool, using short
+  `tenant()` transactions (see contract below). Until then mark this **blocked on Ruthvik PR <link>**.
+- [ ] **Score consumer entry point.** There is still no `score` consumer, so extracted documents wait in the
+  queue. Agree with Ruthvik who adds the `finledger-platform` entry point; if it is you, follow the
+  extract-worker pattern (lease, idempotent replay, safe failure categories) and leave review logic to Ruthvik.
+- [ ] **Scanner and deployment config review.** Not covered by PR #45: review `clamd` settings, worker health
+  checks and the staging process layout so they are ready as soon as hosting is approved. Record findings
+  in the runbook; no hosted changes.
+
+PR descriptions must not include "Generated by" attribution footers (PR #45's body had one); see §4.
 
 **Do not** edit/reapply migrations 001–011, alter applied 012 SQL, apply uncommitted SQL,
 reset hosted data, clear buckets or delete persistent volumes. Any additional fix uses a new reviewed
