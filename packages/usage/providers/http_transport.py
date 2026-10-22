@@ -12,6 +12,8 @@ import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from usage.providers.bounds import require_positive_finite, require_positive_int
+from usage.providers.gemini import GEMINI_OUTPUT_TOKEN_ALLOWANCE
 from usage.providers.transport import TransportError, TransportResponse
 
 # Location, model and project are path segments. Reject anything that could change the host or path.
@@ -45,14 +47,12 @@ class HttpGeminiTransport:
     ):
         if not isinstance(credential, str) or not credential or any(char.isspace() for char in credential):
             raise ValueError("provider credential is required")
-        if timeout_seconds <= 0 or max_request_bytes < 1 or max_response_bytes < 1:
-            raise ValueError("timeout and payload bounds must be positive")
         self._credential = credential
         self._project = _require_token(project, "project")
         self._http_post = http_post
-        self.timeout_seconds = timeout_seconds
-        self.max_request_bytes = max_request_bytes
-        self.max_response_bytes = max_response_bytes
+        self.timeout_seconds = require_positive_finite(timeout_seconds)
+        self.max_request_bytes = require_positive_int(max_request_bytes)
+        self.max_response_bytes = require_positive_int(max_response_bytes)
 
     def generate(
         self,
@@ -82,19 +82,19 @@ class HttpGeminiTransport:
             raise
         except Exception:
             raise TransportError("transport_unavailable") from None
-        if not isinstance(status, int) or not isinstance(response_body, (bytes, bytearray)):
+        if not isinstance(status, int) or isinstance(status, bool) or not isinstance(response_body, (bytes, bytearray)):
             raise TransportError("invalid_response")
         response_body = bytes(response_body)
         if len(response_body) > self.max_response_bytes:
-            raise TransportError("response_too_large")
+            raise TransportError("response_too_large", body_received=True)
         if status in {401, 403}:
-            raise TransportError("auth_rejected")
+            raise TransportError("auth_rejected", body_received=True)
         if status == 429:
-            raise TransportError("http_429")
+            raise TransportError("http_429", body_received=True)
         if 500 <= status <= 599:
-            raise TransportError("http_5xx")
+            raise TransportError("http_5xx", body_received=True)
         if status != 200:
-            raise TransportError("http_4xx")
+            raise TransportError("http_4xx", body_received=True)
         return _parse_response(response_body)
 
 
@@ -123,19 +123,25 @@ def _request_body(purpose: str, payload: dict[str, Any]) -> bytes:
                 "data": base64.b64encode(bytes(blob)).decode("ascii"),
             }
         })
-    return json.dumps({"contents": [{"role": "user", "parts": parts}]}, separators=(",", ":")).encode("utf-8")
+    return json.dumps(
+        {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"maxOutputTokens": GEMINI_OUTPUT_TOKEN_ALLOWANCE},
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
 def _parse_response(body: bytes) -> TransportResponse:
     try:
         data = json.loads(body.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError):
-        raise TransportError("invalid_response") from None
+        raise TransportError("invalid_response", body_received=True) from None
     if not isinstance(data, dict):
-        raise TransportError("invalid_response")
+        raise TransportError("invalid_response", body_received=True)
     candidates = data.get("candidates")
     if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
-        raise TransportError("invalid_response")
+        raise TransportError("invalid_response", body_received=True)
     parts = (candidates[0].get("content") or {}).get("parts") if isinstance(candidates[0].get("content"), dict) else None
     texts: list[str] = []
     if isinstance(parts, list):
@@ -143,12 +149,44 @@ def _parse_response(body: bytes) -> TransportResponse:
             if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"]:
                 texts.append(part["text"])
     if not texts:
-        raise TransportError("invalid_response")
-    usage = data.get("usageMetadata") if isinstance(data.get("usageMetadata"), dict) else {}
-    tokens_in = usage.get("promptTokenCount")
-    tokens_out = usage.get("candidatesTokenCount")
-    if not isinstance(tokens_in, int) or isinstance(tokens_in, bool) or tokens_in < 0:
-        tokens_in = 0
-    if not isinstance(tokens_out, int) or isinstance(tokens_out, bool) or tokens_out < 0:
-        tokens_out = 0
-    return TransportResponse("".join(texts), tokens_in, tokens_out, 0)
+        raise TransportError("invalid_response", body_received=True)
+    tokens_in, tokens_out, usage_known = _chargeable_usage(data.get("usageMetadata"))
+    return TransportResponse("".join(texts), tokens_in, tokens_out, 0, usage_known=usage_known)
+
+
+def _counter(usage: dict[str, Any], name: str) -> int | None:
+    value = usage[name]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _chargeable_usage(usage: object) -> tuple[int, int, bool]:
+    """Return chargeable input, chargeable output, and whether the metadata is known.
+
+    Vertex UsageMetadata (checked 2026-10-22):
+    https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerateContentResponse
+    totalTokenCount is prompt + candidates + toolUsePrompt + thoughts.
+    thoughtsTokenCount is generated thoughts output and is added once, not also via totalTokenCount.
+    cachedContentTokenCount is already inside promptTokenCount.
+    toolUsePromptTokenCount is outside promptTokenCount and inside totalTokenCount, so it is input once.
+    """
+    if not isinstance(usage, dict) or not usage:
+        return 0, 0, False
+    required = ("promptTokenCount", "candidatesTokenCount")
+    if any(name not in usage for name in required):
+        return 0, 0, False
+    prompt = _counter(usage, "promptTokenCount")
+    candidates = _counter(usage, "candidatesTokenCount")
+    thoughts = _counter(usage, "thoughtsTokenCount") if "thoughtsTokenCount" in usage else 0
+    tool = _counter(usage, "toolUsePromptTokenCount") if "toolUsePromptTokenCount" in usage else 0
+    cached = _counter(usage, "cachedContentTokenCount") if "cachedContentTokenCount" in usage else 0
+    if None in {prompt, candidates, thoughts, tool, cached}:
+        return 0, 0, False
+    assert prompt is not None and candidates is not None and thoughts is not None and tool is not None
+    component_sum = prompt + candidates + thoughts + tool
+    if "totalTokenCount" in usage:
+        total = _counter(usage, "totalTokenCount")
+        if total is None or total != component_sum:
+            return 0, 0, False
+    return prompt + tool, candidates + thoughts, True

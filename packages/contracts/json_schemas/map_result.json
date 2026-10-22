@@ -100,8 +100,11 @@
           "type": "integer"
         },
         "cost_usd": {
-          "title": "Cost Usd",
-          "type": "number"
+          "anyOf": [
+            {"type": "number"},
+            {"type": "null"}
+          ],
+          "title": "Cost Usd"
         }
       },
       "required": [

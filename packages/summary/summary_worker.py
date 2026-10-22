@@ -1,6 +1,7 @@
 import os
 from contracts.schemas import CanonicalInvoice, VoucherDraft, RiskScore
 from usage.model_router import ModelRouter
+from usage.provider import persisted_cost_usd
 from usage.usage_writer import UsageWriter
 
 class SummaryWorker:
@@ -46,7 +47,7 @@ class SummaryWorker:
             tokens_in=getattr(getattr(self, "_provider_response", None), "tokens_in", max(1, tokens_in)),
             tokens_out=getattr(getattr(self, "_provider_response", None), "tokens_out", max(1, tokens_out)),
             latency_ms=getattr(getattr(self, "_provider_response", None), "latency_ms", 500),
-            cost_usd=getattr(getattr(self, "_provider_response", None), "cost_usd", 0.0),
+            cost_usd=persisted_cost_usd(getattr(self, "_provider_response", None)),
             purpose="summary"
         )
         

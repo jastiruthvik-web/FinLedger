@@ -144,6 +144,7 @@ def test_provider_retries_only_bounded_transient_http_and_keeps_auth_failure():
         GeminiSettings(model=MODEL, location=LOCATION, max_retries=1),
         _transport(http),
         KillSwitch(limit=50_000, enabled=True),
+        sleeper=lambda _delay: None,
     )
     response = provider.complete("extract", MODEL, "c1", "d1", {"markdown": "x"})
     assert response.text == "{}"
@@ -154,6 +155,7 @@ def test_provider_retries_only_bounded_transient_http_and_keeps_auth_failure():
         GeminiSettings(model=MODEL, location=LOCATION, max_retries=2),
         _transport(http),
         KillSwitch(limit=50_000, enabled=True),
+        sleeper=lambda _delay: None,
     )
     with pytest.raises(TransportError) as exc:
         provider.complete("extract", MODEL, "c1", "d1", {"markdown": CANARY})
@@ -166,6 +168,7 @@ def test_provider_retries_only_bounded_transient_http_and_keeps_auth_failure():
         GeminiSettings(model=MODEL, location=LOCATION, max_retries=1),
         _transport(http),
         KillSwitch(limit=50_000, enabled=True),
+        sleeper=lambda _delay: None,
     )
     with pytest.raises(ProviderTransientError):
         provider.complete("extract", MODEL, "c1", "d1", {"markdown": "x"})
@@ -177,3 +180,154 @@ def test_hosted_guard_still_blocks_an_explicit_http_transport(monkeypatch):
     transport = _transport(FakeHttp([(200, _ok_body())]))
     with pytest.raises(RuntimeError, match="gemini LLM provider cannot run in a hosted environment"):
         ModelRouter(Settings(provider="gemini", gemini_location=LOCATION), gemini_transport=transport)
+
+
+def _usage_body(text: str = "{}", **usage) -> bytes:
+    payload: dict = {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+    if usage:
+        payload["usageMetadata"] = usage
+    return json.dumps(payload).encode()
+
+
+# Vertex generateContent UsageMetadata, read 2026-10-22:
+# https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerateContentResponse
+# totalTokenCount = promptTokenCount + candidatesTokenCount + toolUsePromptTokenCount + thoughtsTokenCount.
+# thoughtsTokenCount is generated thoughts output, billed once, and is not inside candidatesTokenCount.
+# cachedContentTokenCount is already inside promptTokenCount, so it is not added again.
+# toolUsePromptTokenCount is outside promptTokenCount and inside totalTokenCount, so it counts as input once.
+# generationConfig.maxOutputTokens (same day):
+# https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/inference
+_VERTEX_USAGE_DOC = "https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerateContentResponse"
+
+
+def test_thoughts_are_billed_output_once_and_match_total():
+    assert _VERTEX_USAGE_DOC.startswith("https://cloud.google.com/")
+    http = FakeHttp([(200, _usage_body(
+        promptTokenCount=3, candidatesTokenCount=4, thoughtsTokenCount=1000, totalTokenCount=1007,
+    ))])
+    response = _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"})
+    assert getattr(response, "usage_known", False) is True
+    assert response.tokens_in == 3
+    assert response.tokens_out == 1004
+    assert response.tokens_in + response.tokens_out == 1007
+
+
+def test_thoughts_count_without_total_and_cached_tokens_are_not_added():
+    http = FakeHttp([(200, _usage_body(promptTokenCount=3, candidatesTokenCount=4, thoughtsTokenCount=1000))])
+    response = _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"})
+    assert getattr(response, "usage_known", False) is True
+    assert response.tokens_out == 1004
+
+    http = FakeHttp([(200, _usage_body(
+        promptTokenCount=10, candidatesTokenCount=2, cachedContentTokenCount=4, totalTokenCount=12,
+    ))])
+    response = _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"})
+    assert getattr(response, "usage_known", False) is True
+    assert response.tokens_in == 10
+    assert response.tokens_out == 2
+
+
+def test_tool_use_is_input_once_and_disagreement_is_unknown():
+    http = FakeHttp([(200, _usage_body(
+        promptTokenCount=3, candidatesTokenCount=4, thoughtsTokenCount=1, toolUsePromptTokenCount=9, totalTokenCount=17,
+    ))])
+    response = _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"})
+    assert getattr(response, "usage_known", False) is True
+    assert response.tokens_in == 12
+    assert response.tokens_out == 5
+    assert response.tokens_in + response.tokens_out == 17
+
+    http = FakeHttp([(200, _usage_body(
+        promptTokenCount=3, candidatesTokenCount=4, thoughtsTokenCount=1000, totalTokenCount=7,
+    ))])
+    response = _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"})
+    assert getattr(response, "usage_known", True) is False
+
+
+@pytest.mark.parametrize("usage", [
+    {},
+    {"promptTokenCount": 3},
+    {"promptTokenCount": True, "candidatesTokenCount": 4},
+    {"promptTokenCount": -1, "candidatesTokenCount": 4},
+    {"promptTokenCount": 1.5, "candidatesTokenCount": 4},
+    {"promptTokenCount": "3", "candidatesTokenCount": 4},
+    {"promptTokenCount": 3, "candidatesTokenCount": 4, "thoughtsTokenCount": True},
+    {"promptTokenCount": 3, "candidatesTokenCount": 4, "thoughtsTokenCount": -5},
+    {"promptTokenCount": 3, "candidatesTokenCount": 4, "thoughtsTokenCount": 1.0},
+    {"promptTokenCount": 3, "candidatesTokenCount": False},
+    {"promptTokenCount": 3, "candidatesTokenCount": 4, "cachedContentTokenCount": True, "totalTokenCount": 7},
+    {"promptTokenCount": 3, "candidatesTokenCount": 4, "toolUsePromptTokenCount": "9", "totalTokenCount": 7},
+])
+def test_partial_or_malformed_usage_is_not_a_zero_success(usage):
+    body = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "kept"}]}}],
+        "usageMetadata": usage,
+    }).encode()
+    response = _transport(FakeHttp([(200, body)])).generate(
+        model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"}
+    )
+    assert response.text == "kept"
+    assert getattr(response, "usage_known", True) is False
+
+
+def test_missing_or_non_object_usage_is_unknown():
+    missing = json.dumps({"candidates": [{"content": {"parts": [{"text": "kept"}]}}]}).encode()
+    response = _transport(FakeHttp([(200, missing)])).generate(
+        model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"}
+    )
+    assert getattr(response, "usage_known", True) is False
+    weird = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "kept"}]}}],
+        "usageMetadata": ["nope"],
+    }).encode()
+    response = _transport(FakeHttp([(200, weird)])).generate(
+        model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"}
+    )
+    assert getattr(response, "usage_known", True) is False
+
+
+def test_request_sends_output_allowance_as_max_output_tokens():
+    http = FakeHttp([(200, _ok_body())])
+    blob = b"\x89PNG\r\n" + b"x" * 40
+    _transport(http).generate(
+        model=MODEL, location=LOCATION, purpose="extract_vision",
+        payload={"markdown": "", "page_image_bytes": [blob]},
+    )
+    body = json.loads(http.calls[0]["body"])
+    assert body["generationConfig"]["maxOutputTokens"] == 256
+    parts = body["contents"][0]["parts"]
+    assert parts[1]["inline_data"]["data"]
+    assert b"page_image_bytes" not in http.calls[0]["body"]
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, False])
+def test_transport_rejects_nonfinite_or_boolean_timeout(timeout):
+    with pytest.raises(ValueError):
+        HttpGeminiTransport(credential=CREDENTIAL, project=PROJECT, http_post=FakeHttp([]), timeout_seconds=timeout)
+
+
+@pytest.mark.parametrize("bound", [0, -5, True, False])
+def test_transport_rejects_non_positive_or_boolean_size_bounds(bound):
+    with pytest.raises(ValueError):
+        HttpGeminiTransport(
+            credential=CREDENTIAL, project=PROJECT, http_post=FakeHttp([]), max_request_bytes=bound,
+        )
+    with pytest.raises(ValueError):
+        HttpGeminiTransport(
+            credential=CREDENTIAL, project=PROJECT, http_post=FakeHttp([]), max_response_bytes=bound,
+        )
+
+
+def test_status_error_marks_body_received_and_timeout_does_not():
+    with pytest.raises(TransportError) as exc:
+        _transport(FakeHttp([(429, b"slow")])).generate(
+            model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"}
+        )
+    assert exc.value.code == "http_429"
+    assert getattr(exc.value, "body_received", False) is True
+    with pytest.raises(TransportError) as exc:
+        _transport(FakeHttp([TimeoutError("timed out")])).generate(
+            model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "x"}
+        )
+    assert exc.value.code == "timeout"
+    assert getattr(exc.value, "body_received", True) is False
