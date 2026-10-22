@@ -40,16 +40,20 @@ class HttpGeminiTransport:
         *,
         credential: str,
         project: str,
-        http_post: HttpPost,
+        http_post: HttpPost | None = None,
+        http_client: object | None = None,
         timeout_seconds: float = 30.0,
         max_request_bytes: int = 4_194_304,
         max_response_bytes: int = 1_048_576,
     ):
         if not isinstance(credential, str) or not credential or any(char.isspace() for char in credential):
             raise ValueError("provider credential is required")
+        if (http_post is None) == (http_client is None):
+            raise ValueError("pass http_post or http_client")
         self._credential = credential
         self._project = _require_token(project, "project")
         self._http_post = http_post
+        self._http_client = http_client
         self.timeout_seconds = require_positive_finite(timeout_seconds)
         self.max_request_bytes = require_positive_int(max_request_bytes)
         self.max_response_bytes = require_positive_int(max_response_bytes)
@@ -73,7 +77,17 @@ class HttpGeminiTransport:
             "Content-Type": "application/json",
         }
         try:
-            status, response_body = self._http_post(url, headers, body, self.timeout_seconds)
+            if self._http_client is not None:
+                status, response_body = self._http_client.exchange(
+                    location=location,
+                    model=model,
+                    project=self._project,
+                    headers=headers,
+                    body=body,
+                    timeout=self.timeout_seconds,
+                )
+            else:
+                status, response_body = self._http_post(url, headers, body, self.timeout_seconds)
         except TimeoutError:
             raise TransportError("timeout") from None
         except OSError:
