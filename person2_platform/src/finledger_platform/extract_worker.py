@@ -9,6 +9,7 @@ Outcomes per job:
     ok                                  -> document 'extracted' + workflow event by the firm's automation
                                            maker + score job carrying the CanonicalInvoice, in one transaction
 
+Before the model call, token holds left by an earlier attempt whose lease expired are marked 'expired' (013).
 The model call runs outside any database transaction. Settlement re-checks the lease inside the same
 transaction as the status change, so a worker whose lease expired cannot land a late result.
 """
@@ -113,6 +114,9 @@ def process_extract(conn: psycopg.Connection, store, extract: ExtractFn, job: di
     if keys_rejected(job):
         return _settle(conn, job, "exception", OBJECT_KEY_REJECTED, None)
 
+    with tenant(conn, client_id):  # holds left by a dead earlier attempt stop counting toward this bill's cap
+        conn.execute("select llm_expire_orphaned_tokens(%s, %s, %s, %s)",
+                     (client_id, doc_id, job["id"], job["claim_token"]))
     p = load_extract_input(conn, store, job)
     images = [store.get(k) for k in p["page_image_paths"]] if not p["raw_markdown"].strip() else []
     try:

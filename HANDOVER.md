@@ -231,6 +231,15 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 Harshith §2a local work (branch `claude/project-thread-rzrjfr`):** New migration
+`013_llm_orphaned_holds.sql` (not applied anywhere hosted) adds hold state `expired` and
+`llm_expire_orphaned_tokens`; `extract-worker` calls it before the model call so a dead attempt's hold stops
+blocking the bill's cap. It needs Ruthvik's agreement before merge. The 012 checks now pass under a
+Supabase-like non-superuser `CREATEROLE` owner (11/11), Part A records the server version, and Part C stops on
+PostgreSQL < 16. The runbook records the scanner/deployment review (clamd stream limit, 25 MiB bucket versus
+email attachments, health checks). Adapter wiring is blocked on Ruthvik; the score consumer entry point awaits
+agreement. Tests are listed in the PR. No hosted changes.
+
 **2026-10-22 Harshith staging preparation (documentation only, no hosted access):** Added the migration 012
 staging rollout procedure and per-process runtime login table to the runbook, with read-only/rollback-only
 checks in `docs/sql/migration_012_staging_checks.sql`; recorded exact missing inputs and the Ruthvik
