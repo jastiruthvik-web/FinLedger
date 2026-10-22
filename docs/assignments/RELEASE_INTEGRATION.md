@@ -2,6 +2,10 @@
 
 Prepared 2026-10-22. Repository: https://github.com/ryanshaon/FinLedger
 
+**Ruthvik: start with [the PR #39 remaining-work checklist](RUTHVIK_REMAINING.md).**
+It records completed work, concrete review follow-ups, Harshith dependencies and approval gates.
+The original scope below remains context; the checklist is the current execution order.
+
 ## 1. Your objective
 
 Own the remaining P1–P3 integration, staging setup, controls/UI regression work and release
