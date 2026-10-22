@@ -32,8 +32,27 @@ One image supplies separate processes. Do not run a worker inside a web process.
 | Control UI | `finledger-control --host 0.0.0.0 --port 8770` | `/healthz`, sign-in and MFA; set container `PORT=8770` |
 | Ingest worker | `finledger-platform worker` | Scanner availability, queue progress, retries and dead jobs |
 | Email worker | `finledger-platform outbox-worker --client-id <client-uuid>` | One approved client per process; delivery and failed outbox rows |
+| Extract worker | `finledger-platform extract-worker` | Extract retries/dead jobs, document exceptions, `score` queue depth |
 
-There is **no extract-worker command** yet. Starting ingest alone leaves jobs awaiting the missing consumer.
+The extract worker needs migration 012 and an approved provider. On `main` at `4fc1fe2`, `ModelRouter`
+refuses both `mock` and `gemini` when `FINLEDGER_ENV` is staging/production, so `extract-worker` exits at
+startup there; do not deploy it until the approved live-provider path lands. There is no `score` consumer
+yet, so extracted documents wait in the `score` queue.
+
+Runtime database logins (one per process; names are examples, passwords are owner-chosen secrets).
+Each login is `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB INHERIT`, owns no tables, and connects
+through the session pooler. Queue functions check `session_user`, so grant roles to the login itself.
+
+| Process | Login | Member of | Notes |
+|---|---|---|---|
+| Intake API | `fl_api` | `finledger_app` | Add `finledger_queue_ops` only if firm admins should use the dead-job requeue route |
+| Control UI | `fl_control` | `finledger_app` | |
+| Ingest worker | `fl_ingest` | `finledger_app`, `finledger_worker_ingest` | |
+| Extract worker | `fl_extract` | `finledger_app`, `finledger_worker_extract` | Only after migration 012 and an approved provider |
+| Email worker | `fl_outbox` | `finledger_app` | Row locks, no queue claim |
+| Migrations | owner | | One-off restricted environment only |
+
+Compose grants every worker role to one local `fl_app`; that is a local convenience, not this layout.
 The image's HTTP health check is for web processes; disable/replace it for workers, as local Compose does.
 Intake `/healthz` checks database connectivity with `SELECT 1`; Control UI `/healthz` checks process
 liveness only. Neither proves storage, scanner, email, Auth, schema compatibility or tenant isolation.
@@ -65,6 +84,26 @@ Runtime rules:
   manual review; there is no fleet-wide outbox scheduler or automatic retry policy.
 - Keep encryption/signing keys stable across replicas and releases. Rotation needs its own reviewed plan;
   replacing the Fernet key makes existing encrypted credentials unreadable.
+
+Scanner and process configuration, reviewed against code on `main` (2026-10-22, no hosted check):
+
+- **clamd stream limit.** The ingest worker sends each stored document to clamd in one `INSTREAM`. Portal
+  uploads are capped by `FINLEDGER_MAX_UPLOAD_BYTES` (25 MiB), but an email attachment is bounded only by the
+  40 MiB webhook buffer. Set clamd `StreamMaxLength` to at least 40M, or the attachment gets a size-limit reply,
+  which is treated as a scanner failure: retries, then a dead job, never a pass. Larger documents also need
+  the shared 30-second scan budget; test the largest synthetic size before go-live.
+- **Bucket limit.** `finledger-documents-dev` has a 25 MiB object limit, so an email attachment over 25 MiB
+  cannot be stored. Raise the bucket limit or cap attachments in intake (a reviewed code change); decide before
+  enabling inbound email.
+- **Scanner reachability.** Run clamd on a private network only (port 3310 never public), with signature
+  updates and enough memory for the signature database. Workers start before signatures load and retry
+  (fail closed); watch ingest retries after every scanner restart.
+- **Health checks.** The image `HEALTHCHECK` targets `/healthz` on `PORT` (default 8000). Set `PORT=8770` for
+  the control UI, and disable or replace the check for every worker. Hosting platforms that ignore Docker
+  `HEALTHCHECK` need their own per-process check. Workers have no health endpoint: monitor queue age, retries
+  and dead jobs instead.
+- **Layout.** Separate processes per the table above. Run one email worker per approved client, and don't run
+  `extract-worker` hosted yet. `FINLEDGER_ENV=staging` already refuses a non-`clamd` scanner at startup.
 
 Do not publish raw request bodies or sensitive URL paths/query strings in access logs. Invite links,
 signed object URLs and vendor upload links contain credentials even though they are not labelled API keys.
@@ -120,6 +159,43 @@ finledger-platform s3-smoke
   endpoint configured, the public-object check is skipped; successful S3 roundtrip alone does not prove privacy.
 - Migrations 001–011 are already applied to the current Supabase staging project. Do not reapply or edit
   them. New SQL must be committed in the migrations directory and reviewed/tested before hosted execution.
+
+### Migration 012 staging rollout
+
+Prerequisites: independent SQL/security review, Ryan's explicit approval and window, owner DSN entered
+privately in a one-off migration shell, and no web/worker process running against staging.
+Checks live in [`sql/migration_012_staging_checks.sql`](sql/migration_012_staging_checks.sql) (read-only
+plus one rollback-only proof; psql or the SQL editor, as owner).
+
+1. **Identify.** Merged at `1c7d8a0` (authored in `599bb58`); Git blob
+   `3cf8d16f9c0be2d6e116a3395b19c80cfd18cc8a` (`git rev-parse <commit>:person2_platform/src/finledger_platform/migrations/012_ai_durable_state.sql`).
+   Deploy only images built from a commit with the same blob. Migration `013_llm_orphaned_holds.sql`
+   (blob `6a0fdf8d5e0ce39a76000f87404bbace72763800`, adds the `expired` hold state and `llm_expire_orphaned_tokens`) ships with 012 in
+   any image built after it merged; review and approve both together.
+2. **Part A, before.** Expect `applied` to list exactly `001`–`011`, no 012 tables or `users.automation`,
+   `dup_groups = 0`, `maker_email_clashes = 0` and all five roles present. Any difference: stop. Duplicates
+   abort 012 by design; resolving them is a separate approved data task.
+3. **Apply once** with `finledger-platform migrate` (owner DSN). It runs each pending file in one transaction
+   with its `public.schema_migrations` row, so it must report exactly the approved pending files, in order:
+   `applied: ['012_ai_durable_state.sql', '013_llm_orphaned_holds.sql']` from a commit that includes 013.
+   Anything else: stop. Do not use Supabase `apply_migration` for these files: it would not write
+   `public.schema_migrations`, and a later `migrate` would replay them and fail. Supabase's own history will not list 012; record that, do not hand-edit it.
+4. **Part B, after.** Expect RLS on both tables; table grants only `finledger_app` SELECT on usage, worker
+   roles INSERT on usage and SELECT on reservations; EXECUTE on all five functions (four from 012,
+   `llm_expire_orphaned_tokens` from 013) only for the three worker roles
+   (not `anon`, `authenticated`, `service_role` or `finledger_app`); one automation maker per firm; no empty refs.
+5. **Part C, proof.** Expect 11 `passed = t` rows and `nothing_persisted = t`.
+6. **Recovery.** A failed apply rolls back entirely. After a successful apply there is no down migration:
+   pre-012 images ignore the new objects, and `create-firm` still works because the trigger adds the maker.
+   Any correction is a new reviewed migration, never an edit of 012.
+7. Record commit, blob, the three outputs and the operator in HANDOVER, without connection strings.
+
+Local evidence for the procedure (2026-10-22, PostgreSQL 16.15): with a superuser owner, 001–011 recorded
+first, `migrate` applied only 012, Parts A–C matched the expectations above, and a negative control (RLS off,
+extra EXECUTE grant) turned three proof rows false. Repeated with a Supabase-like owner (`LOGIN CREATEROLE`,
+not superuser, no `BYPASSRLS`, creator of all FinLedger roles): 001–011 applied as that owner, `migrate`
+applied 012, Part C passed 11/11 and nothing persisted. Part C stops before writing on PostgreSQL < 16
+(checked by forcing the threshold). Not yet run against Supabase itself.
 - Do not automate `create-firm` in captured agent output: that command prints a bearer API token. Owner-led
   bootstrap needs a private terminal and explicit Auth-subject linking, never automatic linking by email.
 
@@ -152,6 +228,8 @@ Retain redacted diagnostics and incident times, not invoice contents or credenti
 - Keep database/object data and stable encryption keys. This repo has no automatic down-migration path:
   an image rollback is not a database rollback. Never drop/reverse migrations or restore a backup over live
   state without a separately approved, tested recovery plan.
+- Migration 012 is additive (new tables/functions, `users.automation` and one maker row per firm) and is not
+  reversed by an image rollback. Images without `extract-worker` leave `extract` jobs queued, not lost.
 - Review outbox acceptance before any resend. Provider idempotency has a time window; delivery is not
   exactly-once, and blind replay can duplicate email. Dead-job requeue requires the queue-operations role and
   a resolved cause; do not blanket-requeue.

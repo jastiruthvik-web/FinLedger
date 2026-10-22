@@ -124,7 +124,7 @@ Gotchas:
 | Auth subject link 008 | `migrations/008_supabase_auth_subject.sql` | applied on staging. Rule: **never auto-link by email/JWT metadata**; admin links explicitly |
 | Supabase JWT verifier + Auth/session backend | `finledger_platform/supabase_auth.py`, `auth_gateway.py`, `browser_sessions.py` | tested offline and with local Postgres; PRs #7–#9 merged. Browser routes are on `main`, not deployed to staging |
 | Staging proof tools | `finledger-platform isolation-check`, `finledger-platform s3-smoke` | tested; s3-smoke never run against real Supabase (no valid keys yet) |
-| Runtime image + local stack | `Dockerfile`, `compose.yaml` | image includes installed `finledger-ai` (PR #17); image CI verifies imports, resources and hosted mock guards. No extract consumer |
+| Runtime image + local stack | `Dockerfile`, `compose.yaml` | image includes installed `finledger-ai` (PR #17); image CI verifies imports, resources and hosted mock guards. `extract-worker` service (mock, local only); no `score` consumer |
 | Control UI entry point | `finledger-control` | uses `make_pool` (RLS guard) and full S3 settings |
 | Staff invites + first login | `finledger_platform/staff_invites.py`, Person 3 `/admin/staff`, `/auth/accept` | merged in PR #15; tested offline with fake Auth only. Disabled until `SUPABASE_SECRET_KEY` is set |
 | Worker diagnostic privacy | `worker.py`, `outbox_worker.py`, `tests/test_worker_diagnostics.py` | PR #18: fixed failure categories, no exception payload in worker-owned logs or standard escaping tracebacks; retry/rollback/lease recovery tested |
@@ -245,6 +245,54 @@ platform **333 passed**, control UI **64 passed**. No pytest failures or skips. 
 `production` still refuse both `mock` and `gemini`. Token holds are not a dollar cap. A timeout
 with no response body can stay uncounted. Gemini cost is fixture-only until a tariff is
 approved. Evidence: [docs/RELEASE_EVIDENCE.md](docs/RELEASE_EVIDENCE.md).
+**2026-10-22 Harshith §2a local work (branch `claude/project-thread-rzrjfr`):** New migration
+`013_llm_orphaned_holds.sql` (not applied anywhere hosted) adds hold state `expired` and
+`llm_expire_orphaned_tokens`; `extract-worker` calls it before the model call so a dead attempt's hold stops
+blocking the bill's cap. It needs Ruthvik's agreement before merge. The 012 checks now pass under a
+Supabase-like non-superuser `CREATEROLE` owner (11/11), Part A records the server version, and Part C stops on
+PostgreSQL < 16. The runbook records the scanner/deployment review (clamd stream limit, 25 MiB bucket versus
+email attachments, health checks). Adapter wiring is blocked on Ruthvik; the score consumer entry point awaits
+agreement. Tests are listed in the PR. No hosted changes.
+
+**2026-10-22 Harshith staging preparation (documentation only, no hosted access):** Added the migration 012
+staging rollout procedure and per-process runtime login table to the runbook, with read-only/rollback-only
+checks in `docs/sql/migration_012_staging_checks.sql`; recorded exact missing inputs and the Ruthvik
+integration contract (function signatures, score payload, adapter wiring gaps, maker/editor approval gap)
+in HARSHITH_WORK. Local check on PostgreSQL 16 (superuser owner): 001–011 recorded, `finledger-platform migrate`
+applied only 012, proof 11/11 passed with nothing persisted, negative control 3 rows false; throwaway cluster
+only. No application suites rerun; PR #41 CI (71/356/55, mock 3/3 + 6/6) still applies. No hosted changes.
+
+**2026-10-22 Harshith remaining-work refresh:** Updated only his existing HARSHITH_WORK assignment
+and this status. PR #41 merged backend deliverables are recorded complete; the active list now
+contains approved migration-012 rollout, restricted staging login, private storage, real scanner,
+email, hosting, recovery and handoff evidence. Ruthvik retains provider/accounting/runtime wiring,
+scoring-to-review integration and detailed QA; no duplicate engineering or extra Ryan QA assignment.
+PR #41 CI evidence previously inspected: **71 AI / 356 platform / 55 UI**, mock **3/3 + 6/6**.
+Documentation only on `docs/harshith-remaining-work`; no fresh application suites or hosted changes.
+Exactly three assignment files retained. Check links/whitespace and exact-commit green CI before merge.
+
+**2026-10-22 platform integration (Harshith, branch `feat/platform-integration`, PR #41):** Added migration
+`012_ai_durable_state.sql` (not applied anywhere hosted): `rag_chunks` unique `(client_id, ref)` with
+`legacy:`/`auto:` refs for empty values and a hard stop on existing duplicates, `llm_usage_rows`,
+`llm_token_reservations`, tenant RLS, `llm_reserve/reconcile/release_tokens` (signatures match
+`PostgresKillSwitch`, extract/score/map worker roles only, reconcile/release bound to the caller's tenant)
+and one non-login automation maker per firm (`users.automation`; no token, Auth subject, firm-admin flag
+or client roles). Added `finledger-platform extract-worker` plus a Compose service (mock provider, local
+only): statements and keys outside `{client_id}/` become document exceptions before storage/AI; only
+Person 1's fixed failure categories reach `documents.status_reason` (anything else retries under a fixed
+reason); success settles `extracted`, a maker-attributed workflow event and a `score` job in one
+transaction that re-checks the lease. Retired `packages/testing/sql/ai_durable_ephemeral.sql`: AI durable
+tests now run on the real numbered migrations in an ephemeral database.
+Local run: **71 AI / 356 platform / 55 UI passed**, mock **3/3 + 6/6**, 0 skipped. Native process smoke
+of the Compose services (fresh migrate, `isolation-check` 11/11, upload → `extracted` → `score` queued)
+passed; ClamAV ran as the `eicar` stub. Not verified: local Docker build (registry blocked; CI `image`
+job builds it), real ClamAV, S3, email, staging Auth E2E, restricted staging login, hosting.
+Hosted changes: none. Next owner, Ruthvik: `score` job consumer (payload carries `canonical_invoice` and
+`maker_id`), wiring `PostgresKillSwitch` + `PostgresUsageWriter` into `default_extract()` (reserve and
+reconcile inside short `tenant()` scopes, not around the model call), and agreeing maker-checker:
+whether a human who edits extracted fields becomes the recorded maker (and so cannot approve that bill)
+or the automation maker stays maker and any human approver may approve. Owner approval still needed for
+hosted login/grants, storage/email/scanner proofs and deployment.
 
 **2026-10-22 three-owner cleanup:** Consolidated all active assignments into RYAN_WORK,
 HARSHITH_WORK and RUTHVIK_WORK under `docs/assignments/`. Ruthvik's original release scope
