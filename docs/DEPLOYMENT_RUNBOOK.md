@@ -32,8 +32,11 @@ One image supplies separate processes. Do not run a worker inside a web process.
 | Control UI | `finledger-control --host 0.0.0.0 --port 8770` | `/healthz`, sign-in and MFA; set container `PORT=8770` |
 | Ingest worker | `finledger-platform worker` | Scanner availability, queue progress, retries and dead jobs |
 | Email worker | `finledger-platform outbox-worker --client-id <client-uuid>` | One approved client per process; delivery and failed outbox rows |
+| Extract worker | `finledger-platform extract-worker` | Extract retries/dead jobs, document exceptions, `score` queue depth |
 
-There is **no extract-worker command** yet. Starting ingest alone leaves jobs awaiting the missing consumer.
+The extract worker needs migration 012 and an approved provider; `ModelRouter` refuses mock or
+transport-less providers when `FINLEDGER_ENV` is staging/production. There is no `score` consumer yet,
+so extracted documents wait in the `score` queue.
 The image's HTTP health check is for web processes; disable/replace it for workers, as local Compose does.
 Intake `/healthz` checks database connectivity with `SELECT 1`; Control UI `/healthz` checks process
 liveness only. Neither proves storage, scanner, email, Auth, schema compatibility or tenant isolation.
@@ -152,6 +155,8 @@ Retain redacted diagnostics and incident times, not invoice contents or credenti
 - Keep database/object data and stable encryption keys. This repo has no automatic down-migration path:
   an image rollback is not a database rollback. Never drop/reverse migrations or restore a backup over live
   state without a separately approved, tested recovery plan.
+- Migration 012 is additive (new tables/functions, `users.automation` and one maker row per firm) and is not
+  reversed by an image rollback. Images without `extract-worker` leave `extract` jobs queued, not lost.
 - Review outbox acceptance before any resend. Provider idempotency has a time window; delivery is not
   exactly-once, and blind replay can duplicate email. Dead-job requeue requires the queue-operations role and
   a resolved cause; do not blanket-requeue.

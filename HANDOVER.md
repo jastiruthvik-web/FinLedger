@@ -124,7 +124,7 @@ Gotchas:
 | Auth subject link 008 | `migrations/008_supabase_auth_subject.sql` | applied on staging. Rule: **never auto-link by email/JWT metadata**; admin links explicitly |
 | Supabase JWT verifier + Auth/session backend | `finledger_platform/supabase_auth.py`, `auth_gateway.py`, `browser_sessions.py` | tested offline and with local Postgres; PRs #7–#9 merged. Browser routes are on `main`, not deployed to staging |
 | Staging proof tools | `finledger-platform isolation-check`, `finledger-platform s3-smoke` | tested; s3-smoke never run against real Supabase (no valid keys yet) |
-| Runtime image + local stack | `Dockerfile`, `compose.yaml` | image includes installed `finledger-ai` (PR #17); image CI verifies imports, resources and hosted mock guards. No extract consumer |
+| Runtime image + local stack | `Dockerfile`, `compose.yaml` | image includes installed `finledger-ai` (PR #17); image CI verifies imports, resources and hosted mock guards. `extract-worker` service (mock, local only); no `score` consumer |
 | Control UI entry point | `finledger-control` | uses `make_pool` (RLS guard) and full S3 settings |
 | Staff invites + first login | `finledger_platform/staff_invites.py`, Person 3 `/admin/staff`, `/auth/accept` | merged in PR #15; tested offline with fake Auth only. Disabled until `SUPABASE_SECRET_KEY` is set |
 | Worker diagnostic privacy | `worker.py`, `outbox_worker.py`, `tests/test_worker_diagnostics.py` | PR #18: fixed failure categories, no exception payload in worker-owned logs or standard escaping tracebacks; retry/rollback/lease recovery tested |
