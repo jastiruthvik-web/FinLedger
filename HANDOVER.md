@@ -231,6 +231,15 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 Harshith remaining-work refresh:** Updated only his existing HARSHITH_WORK assignment
+and this status. PR #41 merged backend deliverables are recorded complete; the active list now
+contains approved migration-012 rollout, restricted staging login, private storage, real scanner,
+email, hosting, recovery and handoff evidence. Ruthvik retains provider/accounting/runtime wiring,
+scoring-to-review integration and detailed QA; no duplicate engineering or extra Ryan QA assignment.
+PR #41 CI evidence previously inspected: **71 AI / 356 platform / 55 UI**, mock **3/3 + 6/6**.
+Documentation only on `docs/harshith-remaining-work`; no fresh application suites or hosted changes.
+Exactly three assignment files retained. Check links/whitespace and exact-commit green CI before merge.
+
 **2026-10-22 platform integration (Harshith, branch `feat/platform-integration`, PR #41):** Added migration
 `012_ai_durable_state.sql` (not applied anywhere hosted): `rag_chunks` unique `(client_id, ref)` with
 `legacy:`/`auto:` refs for empty values and a hard stop on existing duplicates, `llm_usage_rows`,

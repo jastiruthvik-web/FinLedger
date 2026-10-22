@@ -1,106 +1,82 @@
-# Harshith — Backend platform and AI handover
+# Harshith — Remaining staging and deployment work
 
-Prepared 2026-10-22. Repository: https://github.com/ryanshaon/FinLedger
+Updated 2026-10-22 after [PR #41](https://github.com/ryanshaon/FinLedger/pull/41)
+merged into main at `1c7d8a0`. This is your only active assignment file.
 
-## 1. Scope and coordination
+## 1. Completed — do not rebuild
 
-This is Harshith's only active work file: backend platform, migration/consumer and operations.
-Ruthvik keeps [his existing release-integration assignment](RUTHVIK_WORK.md), including
-live AI transport/runtime wiring, controls/UI work and detailed QA previously assigned to Ryan.
-Do not take over that assignment or build a second provider implementation.
+- Migration `012_ai_durable_state.sql`: durable retrieval/usage/reservation schema,
+  tenant RLS, worker functions/grants and restricted per-firm automation maker.
+- `extract-worker`: statement/key guards, extraction, safe failure categories,
+  idempotent replay, retries/dead letters and lease-safe atomic status/score-job settlement.
+- Compose extraction service; AI durability tests now use numbered migrations, not the removed SQL overlay.
+- Native local smoke reached upload → extracted → score queued, with local EICAR scanning.
+  This is the contributor's recorded local proof, not real ClamAV or hosted verification.
 
-| Surface | Harshith delivers | Ruthvik handles |
+[Inspected CI](https://github.com/ryanshaon/FinLedger/actions/runs/39772975721):
+**71 AI / 356 platform / 55 UI tests passed**, mock **3/3 + 6/6**, test/image jobs green.
+These are CI results for the reviewed PR, not a new local run.
+
+**Local backend milestone completed. Hosted operations are not completed.**
+Migration 012 is committed but documented as **not applied hosted**; verify actual history before any action.
+
+## 2. Remaining work, in order
+
+Read root [HANDOVER](../../HANDOVER.md), [deployment runbook](../DEPLOYMENT_RUNBOOK.md)
+and [Auth design](../plans/AUTH_SUPABASE_DESIGN.md) first. Use synthetic data only.
+
+| Task | Prerequisite | Completion evidence |
 |---|---|---|
-| Database | Reviewed durable-schema migration, RLS and grants | Connects AI adapters and verifies integration |
-| Extraction queue | Consumer, leases/status settlement, statement/key guards | Supplies live AI runtime integration and verifies full workflow |
-| Automation maker | Restricted per-firm maker, backend workflow integration | Controls/UI and independent maker-checker verification |
-| Operations | Restricted runtime login, storage/email/scanner proofs and approved deployment | Cross-service acceptance, Auth/browser QA and release evidence |
+| Confirm current hosted state and access needs | Owner-approved access | Redacted checklist of schema/runtime/storage/Auth state; no secret values |
+| Prepare migration 012 staging rollout | Independent SQL/security review and explicit hosted approval | Existing data checked for duplicate RAG refs; exact committed migration identified; recovery/compatible-image plan recorded |
+| Apply migration 012 once, if approved and not already applied | Approved rollout and privately entered migration credentials | Recorded commit, migration-history result, schema/RLS/grant checks and rollback-only tenant proof |
+| Create/verify restricted runtime login and worker roles | Owner supplies password privately; approved grants | Session-pooler connection uses non-owner/non-BYPASSRLS login; per-process least privilege and cross-tenant denial proven |
+| Verify real private storage | Owner-private S3 configuration | Synthetic put/get/presign, unsigned-public denial and cleanup result; explicitly resolve any leftover test object |
+| Verify real ClamAV | Reachable approved scanner/runtime | Healthy scan, test-signature rejection and fail-closed outage/retry behavior; EICAR stub alone does not count |
+| Verify email delivery and inbound webhook | Verified sender domain, private keys and explicit synthetic-send approval | Synthetic outbox/webhook path, authentication rejection, retry/failure behavior and delivery evidence without payload logs |
+| Deploy API, control UI and separate workers | Approved hosting account/budget/origins; compatible reviewed code | Immutable image/commit, HTTPS, safe proxy logging/limits, stable keys, process/dependency checks and monitoring |
+| Verify recovery and hand off staging | Approved runtime plus tests above | Tested compatible-image rollback without deleting data; staging URL and safe synthetic setup for Ruthvik |
 
-Agree PRs and interfaces before touching shared files. Ruthvik's references to integrating,
-reviewing or proving platform behavior mean consuming your implementation, not duplicating it.
-Obtain independent security review; one contributor's self-test is not independent approval.
+**Do now without live credentials:** prepare the rollout checklist, inspect code/role requirements,
+review scanner/deployment configuration, identify exact missing inputs and agree integration PRs.
+Do not wait silently or claim a hosted task complete because its local code exists.
 
-## 2. Baseline and first steps
+**Do not** edit/reapply migrations 001–011, alter applied 012 SQL, apply uncommitted SQL,
+reset hosted data, clear buckets or delete persistent volumes. Any additional fix uses a new reviewed
+migration/PR. A real deployment cannot use mock AI; keep extraction disabled/fail-closed until Ruthvik's
+approved live-provider/runtime path is ready. Do not weaken startup guards to make a demo work.
 
-Read root [HANDOVER](../../HANDOVER.md) completely, the
-[schema proposal](../proposals/AI_DURABLE_RETRIEVAL_USAGE_SCHEMA.md),
-[deployment runbook](../DEPLOYMENT_RUNBOOK.md) and [Auth design](../plans/AUTH_SUPABASE_DESIGN.md).
+## 3. Coordinate with Ruthvik — do not duplicate his work
 
-PR #37 already delivered synthetic extraction/vision regressions, credit-note fixtures,
-safe failure categories, a Gemini adapter tested with fake transport, durable Python adapters
-tested on ephemeral PostgreSQL and an opt-in live-evaluation gate. Reuse these components.
-No hosted durable migration or live provider activation was delivered by that work.
-October 20 CI: **71 AI / 333 platform / 55 UI passed**, mock **3/3 + 6/6**; historical evidence only.
+[Ruthvik's work](RUTHVIK_WORK.md) covers provider/accounting fixes, actual HTTP/runtime wiring,
+durable-adapter integration, score/map → review completion and detailed Auth/UI/end-to-end QA.
 
-With Python 3.12, uv and PostgreSQL tools, from your clone:
+- Give him migration/function signatures, the extract result/score payload contract
+  (`canonical_invoice`, `maker_id`), reviewed commit links and operational dependency results.
+- Coordinate who implements any score-consumer platform entry point; Ruthvik owns completing
+  and verifying the scoring-to-review integration. Do not start a competing implementation.
+- Support wiring `PostgresKillSwitch` and `PostgresUsageWriter` into the actual worker.
+  Current `default_extract()` still uses in-memory usage; agree short tenant transactions
+  and atomic usage/hold settlement with Ruthvik, not a transaction held across model calls.
+- Support independent automation-maker/human-editor checks. The established requirement is
+  that automation must not let a human editor approve their own work. Do not relax that
+  requirement or invent automatic posting/payment permission.
+- Supply the approved staging URL and private synthetic test setup. Ruthvik leads real Auth,
+  browser/workflow and upload-to-review proofs; you fix backend/operational failures they expose.
 
-```powershell
-git switch main
-git pull --ff-only
-git switch -c feat/platform-integration
-powershell -ExecutionPolicy Bypass -File scripts/test.ps1
-```
+Ryan's [short checklist](RYAN_WORK.md) remains approvals/private access and final acceptance,
+not implementing hosted setup or repeating detailed QA.
 
-Own `person2_platform/`, migrations, Docker/Compose and operational configuration.
-Coordinate contracts, root CI and dependencies with Ruthvik. Never point test-owner DSNs at hosted data.
+## 4. Approval gates and reporting
 
-## 3. Backend deliverables, in order
+Provider/model, processing location, retention, AI budget/capacity and hosting account/budget
+still require approval. Private credentials belong in secret settings, not Git, chat or PR output.
+No model calls, real invites, outbound messages or hosted mutations are authorized by this file alone.
 
-- [ ] Verify the existing local stack, scanner readiness and queue replay/lease behavior.
-- [ ] Author the next available numbered migration after `011` from the schema proposal.
-  Include `rag_chunks` uniqueness on `(client_id, ref)`, usage rows, reservations,
-  reserve/reconcile/release functions, tenant RLS and least-privilege worker grants.
-  Inspect existing data before uniqueness changes; test fresh and upgraded databases.
-  Test-only SQL in `packages/testing/sql/ai_durable_ephemeral.sql` is not a hosted migration.
-- [ ] Build `finledger-platform extract-worker`: claim `extract`, use `tenant(conn, client_id)`,
-  `load_extract_input` and `extract_document(...)`; coordinate successful extraction into
-  scoring/mapping/review with Ruthvik. Keep model calls outside long database transactions.
-- [ ] Set statements to an explicit document exception without a provider call
-  (`statement_not_extracted`). Reject object keys outside `{client_id}/` before reading
-  storage or invoking AI (`object_key_rejected`).
-- [ ] Implement one non-login automation maker per firm with no Auth subject, token or admin
-  privilege. Agree human-correction/maker-checker semantics with Ruthvik; no automatic
-  posting/payment authority is granted by the maker choice.
-- [ ] Prove idempotent replay, compare-and-set statuses, retry/backoff/dead letters,
-  lost-lease/late-result rejection and atomic settlement; `last_error` uses safe categories only.
-- [ ] Under approved access, verify/create the restricted app login and worker grants via
-  the documented session pooler. Prove tenant isolation without owner/service-role runtime access.
-- [ ] With owner-private configuration and approval, prove storage roundtrip/presigned access,
-  unsigned-public denial and cleanup; verify ClamAV, email delivery and inbound webhook behavior.
-- [ ] Deploy API/UI/separate workers only to an approved hosting account/budget. Configure HTTPS,
-  safe logs/request limits and stable encryption/signing keys; document image/version and rollback.
-  Give Ruthvik the staging URL and safe test setup for his acceptance work.
+Keep this file updated in place: check off verified work or move it to the concise completed record.
+Each PR/HANDOVER update lists exact commands/pass/fail/skip counts, environment, cleanup,
+actual hosted changes and named blockers. Require green CI on the exact final commit and
+independent security review. P2 dependency changes require both P2/P3 lockfiles.
 
-## 4. Interfaces you must reuse
-
-| Boundary | Source |
-|---|---|
-| Extraction function/failures | `packages/extract/contract.py`, `packages/extract/failures.py` |
-| Statement/vision behavior | `packages/extract/vision_fallback.py` |
-| Durable retrieval | `packages/rag/postgres_indexer.py` |
-| Token reservations/usage | `packages/usage/postgres_kill_switch.py`, `packages/usage/postgres_usage_writer.py` |
-| Fake-tested Gemini boundary | `packages/usage/providers/`, `packages/usage/model_router.py` |
-| Durability tests/reference SQL | `packages/usage/tests/test_durable_postgres.py`, `person2_platform/src/finledger_platform/migrations/012_ai_durable_state.sql` |
-
-Person 1's extraction contract does not supply a maker actor ID. Runtime mapping belongs in
-the platform/control integration, not an invented identity in the AI payload.
-
-## 5. Gates and completion
-
-Migrations 001–011 were already applied in the last verified staging state: never edit/reapply them.
-Commit/review exact new migration SQL before approved hosted execution. Verify current hosted state
-before changes; do not assume the October record is live verification today.
-
-Provider/model, processing location, retention, budget/capacity and hosting/access still require
-owner approval. Both mock and Gemini remain blocked in staging/production until approved integration.
-Minimized text/bounded images and serving India/EU do not themselves authorize live or cross-border calls.
-Complete local tests first; coordinate provider activation with Ruthvik, not a parallel bypass.
-
-Done: reviewed migrations/worker plus synthetic integration under non-owner RLS, tested retries,
-dependency/privacy/cleanup proofs, deployment/rollback notes and PRs ready for Ruthvik's verification.
-Every PR lists exact commands/pass/fail/skip counts, blockers and hosted changes (or none);
-require green CI on its exact commit and update HANDOVER. P2 dependency changes require both lockfiles.
-
-Never expose/commit secrets, share `.env`, weaken MFA/RLS/scanning, delete volumes/buckets to
-clear errors, force-push shared history or add AI attribution trailers. Use synthetic data only.
-Do not edit `person4_tally/`. Ryan's short owner checklist is separate from your engineering work.
+No RLS/MFA/scanner bypass, force-push cleanup, AI attribution trailers or `person4_tally/` edits.
+Do not claim production readiness while integration or hosted verification remains blocked.
