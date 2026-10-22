@@ -65,6 +65,31 @@ def test_router_rejects_gemini_without_transport():
         ModelRouter(Settings(provider="gemini", gemini_location="asia-south1"))
 
 
+def test_router_kill_switch_injection_has_no_network_fallback(monkeypatch):
+    import inspect
+
+    import usage.model_router as model_router
+
+    switch = KillSwitch(limit=20)
+    router = ModelRouter(Settings(provider="mock"), kill_switch=switch)
+    assert router.provider.kill_switch is switch
+    with pytest.raises(ValueError, match="explicit transport"):
+        ModelRouter(Settings(provider="gemini", gemini_location="asia-south1"), kill_switch=switch)
+    monkeypatch.setenv("FINLEDGER_ENV", "staging")
+    with pytest.raises(RuntimeError, match="mock LLM provider"):
+        ModelRouter(Settings(provider="mock"), kill_switch=switch)
+    monkeypatch.setenv("FINLEDGER_ENV", "production")
+    with pytest.raises(RuntimeError, match="gemini LLM provider"):
+        ModelRouter(
+            Settings(provider="gemini", gemini_location="asia-south1"),
+            gemini_transport=FakeGeminiTransport(),
+            kill_switch=switch,
+        )
+    source = inspect.getsource(model_router)
+    assert "GeminiHttpClient(" not in source
+    assert "http_client" not in source
+
+
 @pytest.mark.parametrize("environment", ["staging", "production"])
 def test_gemini_provider_blocked_in_hosted_environment(monkeypatch, environment):
     monkeypatch.setenv("FINLEDGER_ENV", environment)

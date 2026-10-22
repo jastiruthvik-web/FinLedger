@@ -15,6 +15,45 @@ class ProviderResponse:
     cost_usd: float = 0.0
     cost_computed: bool = True
     usage_known: bool = True
+    reservation_id: str | None = None
+    usage_persisted: bool = False
+
+
+def settle_provider_usage(
+    kill_switch: KillSwitch,
+    reservation,
+    *,
+    purpose: str,
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    latency_ms: int,
+    cost_usd: float | None,
+    cost_computed: bool,
+) -> bool:
+    """Settle one attempt.
+
+    In-memory switches only reconcile. A durable switch inserts the usage row and reconciles
+    in one transaction when the cost was actually computed. An unpriced durable call is left
+    `held`: reconciling without a row would drop it from the cap, and cost_usd cannot store NULL.
+    """
+    settle = getattr(kill_switch, "settle_usage", None)
+    if settle is None or not getattr(kill_switch, "enabled", True):
+        kill_switch.reconcile(reservation, tokens_in + tokens_out)
+        return False
+    if not cost_computed or cost_usd is None:
+        return False
+    return bool(
+        settle(
+            reservation,
+            purpose=purpose,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+            cost_usd=cost_usd,
+        )
+    )
 
 
 def persisted_cost_usd(response: object | None) -> float | None:
@@ -43,13 +82,29 @@ class MockProvider:
         reservation = self.kill_switch.reserve(client_id, document_id, estimated_tokens)
         try:
             output = self._generate(purpose, document_id, payload)
-            text = json.dumps(output, separators=(",", ":"))
-            tokens_out = _tokens(text)
-            self.kill_switch.reconcile(reservation, tokens_in + tokens_out)
         except Exception:
             self.kill_switch.release(reservation)
             raise
-        return ProviderResponse(text, tokens_in, tokens_out)
+        text = json.dumps(output, separators=(",", ":"))
+        tokens_out = _tokens(text)
+        persisted = settle_provider_usage(
+            self.kill_switch,
+            reservation,
+            purpose=purpose,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=0,
+            cost_usd=0.0,
+            cost_computed=True,
+        )
+        return ProviderResponse(
+            text,
+            tokens_in,
+            tokens_out,
+            reservation_id=reservation.reservation_id,
+            usage_persisted=persisted,
+        )
 
     @staticmethod
     def _estimate_output_tokens(purpose: str, payload: dict[str, Any]) -> int:

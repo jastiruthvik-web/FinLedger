@@ -39,7 +39,12 @@ class Settings:
 _PROVIDERS = {}
 
 class ModelRouter:
-    def __init__(self, settings: Settings | None = None, gemini_transport: GeminiTransport | None = None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        gemini_transport: GeminiTransport | None = None,
+        kill_switch: KillSwitch | None = None,
+    ):
         self.settings = settings or Settings.from_env()
         env = os.getenv("FINLEDGER_ENV", "development").strip().lower()
         if env in {"staging", "production"} and self.settings.provider in _HOSTED_BLOCKED_PROVIDERS:
@@ -51,10 +56,17 @@ class ModelRouter:
             "map": self.settings.model_map,
             "summary": self.settings.model_summary,
         }
-        kill = KillSwitch(self.settings.per_bill_token_cap, self.settings.kill_switch_enabled)
+        # Injected switch is the worker's durable adapter. No socket client is constructed here.
+        if kill_switch is None:
+            kill = KillSwitch(self.settings.per_bill_token_cap, self.settings.kill_switch_enabled)
+        else:
+            kill = kill_switch
         if self.settings.provider == "mock":
-            key = (self.settings.provider, self.settings.per_bill_token_cap, self.settings.kill_switch_enabled)
-            self.provider = _PROVIDERS.setdefault(key, MockProvider(kill))
+            if kill_switch is None:
+                key = (self.settings.provider, self.settings.per_bill_token_cap, self.settings.kill_switch_enabled)
+                self.provider = _PROVIDERS.setdefault(key, MockProvider(kill))
+            else:
+                self.provider = MockProvider(kill)
         elif self.settings.provider == "gemini":
             if not self.settings.gemini_location:
                 raise ValueError("FINLEDGER_GEMINI_LOCATION is required when FINLEDGER_LLM_PROVIDER=gemini")

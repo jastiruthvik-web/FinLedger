@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import uuid
-
 import psycopg
 
+from usage.postgres_settlement import write_usage_and_reconcile
 from usage.usage_writer import UsageRow, UsageWriter
 
 
@@ -20,27 +19,28 @@ class PostgresUsageWriter(UsageWriter):
         tokens_in: int,
         tokens_out: int,
         latency_ms: int,
-        cost_usd: float,
+        cost_usd: float | None,
         purpose: str,
+        reservation_id: str | None = None,
     ) -> UsageRow:
         row = super().log_usage(
-            client_id, doc_id, model, tokens_in, tokens_out, latency_ms, cost_usd, purpose
+            client_id, doc_id, model, tokens_in, tokens_out, latency_ms, cost_usd, purpose,
+            reservation_id=reservation_id,
         )
-        with self._conn.transaction():
-            self._conn.execute(
-                """insert into llm_usage_rows
-                   (client_id, document_id, reservation_id, purpose, model, tokens_in, tokens_out, latency_ms, cost_usd)
-                   values (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s)""",
-                (
-                    client_id,
-                    doc_id,
-                    str(uuid.uuid4()),
-                    purpose,
-                    model,
-                    tokens_in,
-                    tokens_out,
-                    latency_ms,
-                    cost_usd,
-                ),
-            )
+        if cost_usd is None:
+            return row
+        if not reservation_id:
+            raise ValueError("reservation_id is required; a durable usage row must use the hold id")
+        write_usage_and_reconcile(
+            self._conn,
+            client_id=client_id,
+            document_id=doc_id,
+            reservation_id=reservation_id,
+            purpose=purpose,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+            cost_usd=cost_usd,
+        )
         return row

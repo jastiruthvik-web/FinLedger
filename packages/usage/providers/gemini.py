@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from usage.kill_switch import KillSwitch
-from usage.provider import ProviderResponse, _tokens
+from usage.provider import ProviderResponse, _tokens, settle_provider_usage
 from usage.provider_errors import ProviderTransientError
 from usage.providers.bounds import require_positive_finite, require_positive_int
 from usage.providers.transport import GeminiTransport, TransportError, TransportResponse
@@ -81,6 +81,7 @@ class GeminiProvider:
         estimated_in = self._estimate_input_tokens(payload)
         allowance = GEMINI_OUTPUT_TOKEN_ALLOWANCE
         hold = estimated_in + allowance
+        model_name = model or self.settings.model
         attempts = 0
         while True:
             reservation = self.kill_switch.reserve(client_id, document_id, hold)
@@ -88,13 +89,13 @@ class GeminiProvider:
             try:
                 started = time.perf_counter()
                 transport_response = self.transport.generate(
-                    model=model or self.settings.model,
+                    model=model_name,
                     location=self.settings.location,
                     purpose=purpose,
                     payload=payload,
                 )
             except TransportError as exc:
-                self._settle_failed_attempt(reservation, exc, hold)
+                self._settle_failed_attempt(reservation, exc, estimated_in, allowance, purpose, model_name)
                 if exc.code not in _RETRYABLE or attempts > self.settings.max_retries:
                     if exc.code in _RETRYABLE:
                         raise ProviderTransientError() from None
@@ -106,8 +107,18 @@ class GeminiProvider:
                 raise
             latency_ms = transport_response.latency_ms or int((time.perf_counter() - started) * 1000)
             tokens_in, tokens_out = self._settled_tokens(transport_response, estimated_in, allowance)
-            self.kill_switch.reconcile(reservation, tokens_in + tokens_out)
             cost_usd, cost_computed = self._priced_cost(tokens_in, tokens_out)
+            persisted = settle_provider_usage(
+                self.kill_switch,
+                reservation,
+                purpose=purpose,
+                model=model_name,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+                cost_usd=cost_usd,
+                cost_computed=cost_computed,
+            )
             return ProviderResponse(
                 transport_response.text,
                 tokens_in,
@@ -116,14 +127,36 @@ class GeminiProvider:
                 cost_usd,
                 cost_computed=cost_computed,
                 usage_known=transport_response.usage_known,
+                reservation_id=reservation.reservation_id,
+                usage_persisted=persisted,
             )
 
-    def _settle_failed_attempt(self, reservation, exc: TransportError, hold: int) -> None:
-        # A timeout with no body can stay uncounted. A body, including an error body, cannot be released.
-        if exc.body_received:
-            self.kill_switch.reconcile(reservation, hold)
-        else:
+    def _settle_failed_attempt(
+        self,
+        reservation,
+        exc: TransportError,
+        estimated_in: int,
+        allowance: int,
+        purpose: str,
+        model: str,
+    ) -> None:
+        # A timeout with no body can stay uncounted. A body, including an error body, is not released.
+        if not exc.body_received:
             self.kill_switch.release(reservation)
+            return
+        tokens_in, tokens_out = estimated_in, allowance
+        cost_usd, cost_computed = self._priced_cost(tokens_in, tokens_out)
+        settle_provider_usage(
+            self.kill_switch,
+            reservation,
+            purpose=purpose,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=0,
+            cost_usd=cost_usd,
+            cost_computed=cost_computed,
+        )
 
     @staticmethod
     def _settled_tokens(response: TransportResponse, estimated_in: int, allowance: int) -> tuple[int, int]:
