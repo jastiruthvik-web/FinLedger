@@ -6,6 +6,7 @@ from contracts.schemas import CanonicalInvoice
 from extract.failures import ExtractFailure, INVALID_MODEL_OUTPUT
 from extract.input_policy import minimize_invoice_markdown
 from usage.model_router import ModelRouter
+from usage.provider import persisted_cost_usd
 from usage.usage_writer import UsageWriter
 
 class ExtractWorker:
@@ -54,7 +55,7 @@ class ExtractWorker:
             tokens_in=getattr(getattr(self, "_provider_response", None), "tokens_in", max(1, len(markdown) // 4)),
             tokens_out=getattr(getattr(self, "_provider_response", None), "tokens_out", max(1, len(response_text) // 4)),
             latency_ms=getattr(getattr(self, "_provider_response", None), "latency_ms", 1000),
-            cost_usd=getattr(getattr(self, "_provider_response", None), "cost_usd", 0.0),
+            cost_usd=persisted_cost_usd(getattr(self, "_provider_response", None)),
             purpose="extract"
         )
         

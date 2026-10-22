@@ -7,18 +7,24 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from finledger_platform.browser_sessions import MIN_PASSWORD_CHARS, SessionDenied, StaffSession
 from finledger_platform.db import firm
 from finledger_platform.staff_invites import InviteConflict, InviteDenied, InviteInvalid, InviteUnavailable
 from .service import Conflict, ControlService, Forbidden, NotFound
-from .web import (render_accept_invite, render_home, render_inbox, render_login, render_mfa, render_review,
-                  render_staff_invite)
+from .web import (render_accept_invite, render_form_error, render_home, render_inbox, render_login, render_mfa,
+                  render_review, render_staff_invite)
 
 
 def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, staff_invitations=None) -> FastAPI:
     app=FastAPI(title="FinLedger Control & Review", version="0.1.0")
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_form(_request: Request, _exc: RequestValidationError):
+        # Validation details echo submitted fields, including passwords. Show a fixed message instead.
+        return HTMLResponse(render_form_error(), status_code=422)
 
     @app.middleware("http")
     async def security_headers(request:Request,call_next):

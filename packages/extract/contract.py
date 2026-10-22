@@ -6,10 +6,11 @@ from typing import Any
 
 from contracts.schemas import CanonicalInvoice
 from extract.failures import ExtractFailure, FAILURE_CATEGORIES
+from extract.object_keys import require_tenant_object_key
 from extract.vision_fallback import ExtractionDispatcher
 from extract.extract_worker import ExtractWorker
 
-__all__ = ["ExtractFailure", "FAILURE_CATEGORIES", "extract_document"]
+__all__ = ["ExtractFailure", "FAILURE_CATEGORIES", "extract_document", "require_tenant_object_key"]
 
 
 def extract_document(
