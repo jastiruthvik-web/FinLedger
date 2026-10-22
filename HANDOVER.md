@@ -240,6 +240,17 @@ Local run: **71 AI / 355 platform / 55 UI passed**, mock **3/3 + 6/6**, 0 skippe
 and retiring the `ai_durable_ephemeral.sql` overlay, which redefines the 012 functions in AI tests.
 Hosted login/grants, storage/email/scanner proofs and deployment remain blocked on owner approval.
 
+**2026-10-22 Ruthvik PR #39 review follow-up:** Inspected open head `1eb9544` and CI run
+`39767884426`: **91 AI / 333 platform / 64 UI**, mock **3/3 + 6/6**; test/image jobs passed.
+No full local suite rerun. Pure local parser probe reproduced ignored `thoughtsTokenCount`
+(input=3/candidates=4/thoughts=1000 returned 3/4) and absent usage accepted as 0/0.
+Added RUTHVIK_REMAINING with accounting/output-bound/local HTTP follow-ups, runtime wiring,
+Harshith dependencies and gated hosted acceptance. Ruthvik's implementation PR is not merged by
+this update; hosted activation remains blocked. Carried corrected recipient routing from
+`e79d16f` into this docs PR because those earlier branch corrections were not yet on main.
+Ruthvik and Harshith remain separate; Ryan keeps his reduced owner checklist. Documentation only
+on `docs/ruthvik-remaining-review`: no runtime fixes, hosted calls/SQL, secrets or Person 4 edits.
+
 **2026-10-22 consolidated release assignment:** Synced main to `cf5d2f0` (PR #37). Added
 `docs/assignments/RELEASE_INTEGRATION.md` for remaining AI runtime integration, platform integration,
 staging operations and controls/QA, including work previously assigned to Ryan. Existing friend's
