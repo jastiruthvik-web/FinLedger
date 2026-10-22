@@ -41,6 +41,22 @@ and [Auth design](../plans/AUTH_SUPABASE_DESIGN.md) first. Use synthetic data on
 review scanner/deployment configuration, identify exact missing inputs and agree integration PRs.
 Do not wait silently or claim a hosted task complete because its local code exists.
 
+**Local preparation (2026-10-22, no hosted access):** migration 012 rollout procedure and per-process login
+table added to the [runbook](../DEPLOYMENT_RUNBOOK.md); checks in
+[`migration_012_staging_checks.sql`](../sql/migration_012_staging_checks.sql), validated on local PostgreSQL 16 only.
+No hosted state was read or changed. Exact missing inputs:
+
+| Task | Missing input (owner: Ryan unless noted) |
+|---|---|
+| Hosted state check | Approved owner session to run Part A; current staging facts date from 2026-10-09 |
+| Migration 012 | Named independent SQL/security reviewer, explicit apply approval and window, owner DSN entered privately |
+| Runtime logins | Approval of the five-login layout, one private password per login, decision on `finledger_queue_ops` for the API |
+| Private storage | Supabase Storage S3 access key pair in secret settings (bucket, endpoint and region are already known) |
+| ClamAV | Approved place to run `clamd` reachable from workers; `FINLEDGER_CLAMD_HOST`/`PORT` |
+| Email | Verified Resend domain, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, inbound domain/webhook secret/authserv id, synthetic-send approval |
+| Hosting | Account, budget, region, API and control UI origins, stable `FINLEDGER_SIGNING_SECRET`/`FINLEDGER_ENC_KEY`, `SUPABASE_PUBLISHABLE_KEY`/`SUPABASE_SECRET_KEY` and Auth dashboard settings (Auth design §3.4, §6) |
+| Extraction | Provider/model/location/retention/budget approval, then Ruthvik's transport; until then `extract-worker` refuses to start hosted |
+
 **Do not** edit/reapply migrations 001–011, alter applied 012 SQL, apply uncommitted SQL,
 reset hosted data, clear buckets or delete persistent volumes. Any additional fix uses a new reviewed
 migration/PR. A real deployment cannot use mock AI; keep extraction disabled/fail-closed until Ruthvik's
@@ -63,6 +79,37 @@ durable-adapter integration, score/map → review completion and detailed Auth/U
   requirement or invent automatic posting/payment permission.
 - Supply the approved staging URL and private synthetic test setup. Ruthvik leads real Auth,
   browser/workflow and upload-to-review proofs; you fix backend/operational failures they expose.
+
+**Integration contract for Ruthvik (main `4fc1fe2`; read from code, not a hosted result):**
+
+- **Functions (migration 012).** All `security definer`, callable only by a login whose `session_user` is in
+  `finledger_worker_extract`/`score`/`map`, and only inside `tenant()` for the same client:
+  `llm_reserve_tokens(client_id uuid, document_id uuid, reservation_id uuid, estimated_tokens int, cap int) → void`
+  (locks the document row; raises `ai_budget_exceeded`, `tenant_mismatch`, `document_not_found`, `invalid_cap_arguments`),
+  `llm_reconcile_tokens(reservation_id uuid) → void` (held → reconciled, else `unknown_reservation`),
+  `llm_release_tokens(reservation_id uuid) → void` (no-op if unknown or settled),
+  `automation_maker_id(client_id uuid) → uuid`. Usage is a direct RLS-checked insert into `llm_usage_rows`.
+- **Score job.** Queue `score`, one per document (`idem_key ''`), enqueued in the same transaction that moves
+  `received → extracted` and writes the `extracted` workflow event as the maker. Payload:
+  `{document_id, client_id, maker_id, canonical_invoice}`, where `canonical_invoice` is Person 1's
+  `CanonicalInvoice.model_dump(mode="json")`. Person 3 `ReviewService.score(..., actor_id=maker_id)` then stores it
+  as `canonical_invoices.maker_id`. **Mismatch:** a mock extraction is rejected by `validate_invoice` with
+  `vendor.pan`/`vendor.state` `extra_forbidden` (schema drift) plus `total`/`line_items` (mock content). The
+  consumer must align the two schemas; Ruthvik decides where, without loosening validation silently.
+- **Durable adapters, not yet wired.** `ModelRouter` always builds an in-memory `KillSwitch` (no injection
+  point) and `default_extract()` passes an in-memory `UsageWriter`. As written, `PostgresKillSwitch` and
+  `PostgresUsageWriter` need the caller's open `tenant()` transaction, which would span the model call, and
+  `PostgresUsageWriter` stores a random `reservation_id`, so usage is not tied to its hold. Proposed split, to
+  agree before code: Ruthvik makes the adapters open their own short `tenant()` transaction per call, settles
+  usage insert + `llm_reconcile_tokens` in one transaction keyed by the real reservation id, and adds a router
+  injection point; Harshith then wires them into `default_extract()` with the worker pool. Open question: a
+  worker that dies between reserve and settle leaves a `held` row with no expiry, which counts against that
+  bill's cap until released; recovery needs an agreed sweep or a new reviewed migration.
+- **Automation maker vs human editor.** With the automation as maker, Person 3 `approve()` only compares the
+  approver with `canonical_invoices.maker_id`. A human who submitted the draft (`voucher_drafts.created_by`)
+  or edited it (`correction_events.actor_id`) can therefore approve their own work. That breaks the
+  established rule. The fix is in Person 3 approval checks (Ruthvik) and needs no schema change; no posting or
+  payment permission changes.
 
 Ryan's [short checklist](RYAN_WORK.md) remains approvals/private access and final acceptance,
 not implementing hosted setup or repeating detailed QA.

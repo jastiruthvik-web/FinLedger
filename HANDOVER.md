@@ -231,6 +231,14 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-10-22 Harshith staging preparation (documentation only, no hosted access):** Added the migration 012
+staging rollout procedure and per-process runtime login table to the runbook, with read-only/rollback-only
+checks in `docs/sql/migration_012_staging_checks.sql`; recorded exact missing inputs and the Ruthvik
+integration contract (function signatures, score payload, adapter wiring gaps, maker/editor approval gap)
+in HARSHITH_WORK. Local check on PostgreSQL 16 (superuser owner): 001–011 recorded, `finledger-platform migrate`
+applied only 012, proof 11/11 passed with nothing persisted, negative control 3 rows false; throwaway cluster
+only. No application suites rerun; PR #41 CI (71/356/55, mock 3/3 + 6/6) still applies. No hosted changes.
+
 **2026-10-22 Harshith remaining-work refresh:** Updated only his existing HARSHITH_WORK assignment
 and this status. PR #41 merged backend deliverables are recorded complete; the active list now
 contains approved migration-012 rollout, restricted staging login, private storage, real scanner,
