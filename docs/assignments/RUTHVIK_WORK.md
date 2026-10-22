@@ -1,8 +1,29 @@
-# Ruthvik — Remaining work after PR #39 review
+# Ruthvik — AI integration, controls and release QA
 
-Reviewed 2026-10-22. This is the next-action checklist for
-[your release-integration assignment](RELEASE_INTEGRATION.md), not a new platform assignment.
-[Harshith's migration/worker and operations brief](HARSHITH_PLATFORM_HANDOVER.md) stays separate.
+Updated 2026-10-22. This is Ruthvik's only active work file, combining his original release
+assignment and the PR #39 review follow-ups. Own AI transport/accounting and runtime wiring,
+durable adapter integration, controls/UI fixes, detailed Auth/workflow QA and release evidence.
+[Harshith](HARSHITH_WORK.md) owns backend migration/consumer implementation and operations;
+[Ryan](RYAN_WORK.md) retains approvals/private access and final acceptance. Do not duplicate work.
+
+## Start here
+
+Read root [HANDOVER](../../HANDOVER.md), the [deployment runbook](../DEPLOYMENT_RUNBOOK.md),
+[Auth design](../plans/AUTH_SUPABASE_DESIGN.md), [schema proposal](../proposals/AI_DURABLE_RETRIEVAL_USAGE_SCHEMA.md)
+and [provider proposal](../decisions/ADR-001-AI_PROVIDER.md). Use Python 3.12, uv and PostgreSQL tools.
+
+```powershell
+git switch main
+git pull --ff-only
+git switch -c feat/ruthvik-review-followups
+powershell -ExecutionPolicy Bypass -File scripts/test.ps1
+```
+
+Reuse `packages/`, `evals/` and `person3_control_ui/`; coordinate shared interfaces with
+Harshith. Preserve extraction schema validation, input minimization, bounded image handling,
+safe diagnostics, retrieval tenant isolation and existing regression fixtures. Fix callers,
+fixtures and tests together. If P2 dependencies change, update/check both P2/P3 lockfiles.
+Never point test-owner configuration at hosted data.
 
 ## 1. Status and evidence
 

@@ -2,8 +2,8 @@
 
 Updated 2026-10-22. Your previous coding, UI-fix, regression-test, Auth/MFA verification
 and detailed end-to-end QA tasks have moved to Ruthvik's
-[release-integration assignment](RELEASE_INTEGRATION.md). Harshith owns the separate
-[backend handover](HARSHITH_PLATFORM_HANDOVER.md). You do not need to duplicate their tests.
+[release-integration assignment](RUTHVIK_WORK.md). Harshith owns the separate
+[backend handover](HARSHITH_WORK.md). You do not need to duplicate their tests.
 
 ## Your remaining actions
 

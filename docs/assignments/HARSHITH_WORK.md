@@ -4,8 +4,8 @@ Prepared 2026-10-22. Repository: https://github.com/ryanshaon/FinLedger
 
 ## 1. Scope and coordination
 
-This combines only `NEXT_PERSON_HANDOVER.md` and `02_FRIEND_PLATFORM.md` for Harshith.
-Ruthvik keeps [his existing release-integration assignment](RELEASE_INTEGRATION.md), including
+This is Harshith's only active work file: backend platform, migration/consumer and operations.
+Ruthvik keeps [his existing release-integration assignment](RUTHVIK_WORK.md), including
 live AI transport/runtime wiring, controls/UI work and detailed QA previously assigned to Ryan.
 Do not take over that assignment or build a second provider implementation.
 

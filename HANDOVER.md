@@ -50,6 +50,11 @@ Claude does the same in reverse when handing to you.
 
 ## Repository
 
+- **Current assignments:** exactly three files under `docs/assignments/`:
+  [Ryan](docs/assignments/RYAN_WORK.md), [Harshith](docs/assignments/HARSHITH_WORK.md),
+  [Ruthvik](docs/assignments/RUTHVIK_WORK.md). Update these in place, replacing superseded
+  task lists. Older filenames in dated history below are historical, not active instructions.
+
 - **Three-contributor onboarding:** [TEAM_WORK_SPLIT.md](docs/TEAM_WORK_SPLIT.md) assigns AI,
   platform/deployment and controls/QA ownership, dependencies and acceptance checks. Use it for friends
   joining the project; this handover remains authoritative for decisions and hosted state.
@@ -225,6 +230,16 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 ---
 
 ## Latest status
+
+**2026-10-22 three-owner cleanup:** Consolidated all active assignments into RYAN_WORK,
+HARSHITH_WORK and RUTHVIK_WORK under `docs/assignments/`. Ruthvik's original release scope
+and review follow-ups are together; Harshith retains backend/handover tasks; Ryan stays reduced.
+Replaced TEAM_WORK_SPLIT with a short index, updated schema-reference routing, and removed seven
+superseded assignment/pointer documents from the current tree. All removed content remains
+recoverable in Git history. Shared architecture, operational docs, code, tests and Person 4
+were not removed/modified. Historical status filenames below must not be treated as current
+assignments. Documentation only on `docs/three-owner-cleanup`; no fresh application suites,
+hosted changes or secrets. Validate exact file count, links and whitespace before integration.
 
 **2026-10-22 Ruthvik PR #39 review follow-up:** Inspected open head `1eb9544` and CI run
 `39767884426`: **91 AI / 333 platform / 64 UI**, mock **3/3 + 6/6**; test/image jobs passed.

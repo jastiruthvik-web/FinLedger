@@ -250,7 +250,7 @@ Ephemeral Postgres, member of `finledger_app` / worker roles as appropriate:
 
 ## 10. References
 
-- Friend 1 plan step 2: `docs/friend-1-plan.md` (project store) / team assignment `docs/assignments/01_FRIEND_AI.md`
+- Current AI integration assignment: [Ruthvik's work](../assignments/RUTHVIK_WORK.md); Harshith owns the platform migration.
 - Existing DDL: `person2_platform/src/finledger_platform/migrations/002_documents_queue.sql` (`rag_chunks`), `005_security_workflow.sql` (composite FKs, worker roles)
 - Python contracts: `packages/usage/usage_writer.py`, `packages/usage/kill_switch.py`, `packages/rag/indexer.py`, `packages/usage/provider.py`
 - `HANDOVER.md` — migration `001`–`011` applied on staging; proposal only until Friend 2 merges SQL
