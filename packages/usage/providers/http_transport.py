@@ -1,7 +1,7 @@
 """Gemini HTTP transport. Tests inject the HTTP call; nothing here opens a network socket.
 
-The router still refuses to construct this transport, and staging/production still refuse
-the gemini provider. Wiring a live credential is a separate owner-approved step.
+ModelRouter does not construct this transport. Staging and production accept gemini only
+when the caller passes an HttpGeminiTransport whose client is the explicit HTTP client.
 """
 
 from __future__ import annotations

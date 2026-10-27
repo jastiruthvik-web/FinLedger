@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 
 from usage.kill_switch import KillSwitch
+from usage.live_gemini import transport_is_explicit_live
 from usage.provider import MockProvider
 from usage.providers.gemini import GeminiProvider, GeminiSettings
 from usage.providers.transport import GeminiTransport
@@ -48,7 +49,9 @@ class ModelRouter:
         self.settings = settings or Settings.from_env()
         env = os.getenv("FINLEDGER_ENV", "development").strip().lower()
         if env in {"staging", "production"} and self.settings.provider in _HOSTED_BLOCKED_PROVIDERS:
-            raise RuntimeError(f"{self.settings.provider} LLM provider cannot run in a hosted environment")
+            # Hosted gemini stays refused until this process was given the real HTTP client.
+            if not (self.settings.provider == "gemini" and transport_is_explicit_live(gemini_transport)):
+                raise RuntimeError(f"{self.settings.provider} LLM provider cannot run in a hosted environment")
         self.routes = {
             "extract": self.settings.model_extract,
             "extract_vision": self.settings.model_extract_vision,
