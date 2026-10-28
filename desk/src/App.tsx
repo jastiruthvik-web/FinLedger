@@ -1,17 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, errorMessage } from "./api";
-import { LoginScreen } from "./components/LoginScreen";
-import { Shell } from "./components/Shell";
-import { ClientsPage, InvoicePage, MfaPage, MissingPage, QueuePage, StaffPage } from "./pages/Work";
-import { parseRoute, type Route } from "./router";
-import type { ClientRow, Session } from "./types";
+import { ApiError, api, errorMessage } from "@/api";
+import { LoginScreen } from "@/components/LoginScreen";
+import { Shell } from "@/components/Shell";
+import { PageHeader } from "@/pages/Placeholder";
+import { parseRoute, QUEUES, type Route } from "@/router";
+import type { Session } from "@/types";
 
 type Phase = "checking" | "anon" | "in" | "down";
 
-function routeId(route: Route): string {
+function routeKey(route: Route) {
   if (route.name === "queue") return `queue:${route.clientId}:${route.queue}`;
   if (route.name === "invoice") return `invoice:${route.clientId}:${route.documentId}`;
   return route.name;
+}
+
+function heading(route: Route): { title: string; description: string } {
+  if (route.name === "home") return { title: "Clients", description: "Open a client to work its queues." };
+  if (route.name === "queue") {
+    const queue = QUEUES.find((item) => item.key === route.queue) ?? QUEUES[1];
+    return { title: queue.label, description: queue.context };
+  }
+  if (route.name === "invoice") return { title: "Invoice", description: "The bill will open here." };
+  if (route.name === "staff") return { title: "Staff", description: "Invite someone at the firm and choose the clients they can work on." };
+  if (route.name === "mfa") return { title: "Two-step verification", description: "Enter the code from your authenticator app before you open a client." };
+  return { title: "This page is not on the desk", description: "Choose a client from the sidebar." };
 }
 
 export function App() {
@@ -19,9 +31,6 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [phase, setPhase] = useState<Phase>("checking");
   const [bootError, setBootError] = useState("");
-  const [clients, setClients] = useState<ClientRow[]>([]);
-  const [search, setSearch] = useState("");
-  const [trail, setTrail] = useState<string[]>(["Clients"]);
 
   const go = useCallback((url: string) => {
     const next = new URL(url, window.location.origin);
@@ -31,8 +40,6 @@ export function App() {
     setRoute(parseRoute(next.pathname, next.search));
   }, []);
 
-  const onTrail = useCallback((next: string[]) => setTrail(next), []);
-
   useEffect(() => {
     const sync = () => setRoute(parseRoute(window.location.pathname, window.location.search));
     window.addEventListener("popstate", sync);
@@ -40,25 +47,24 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setSearch("");
-  }, [routeId(route)]);
-
-  useEffect(() => {
     let live = true;
+    const fail = (error: unknown) => {
+      if (!live) return;
+      setSession(null);
+      if (error instanceof ApiError && (error.status === 401 || error.status === 404)) {
+        if (route.name !== "login") go("/login");
+        else setPhase("anon");
+        return;
+      }
+      setBootError(errorMessage(error, "The desk could not reach the control server."));
+      setPhase("down");
+    };
     if (route.name === "login") {
       api.session().then((next) => {
         if (!live) return;
         setSession(next);
         go(next.aal === "aal2" ? "/" : "/mfa");
-      }).catch((error: unknown) => {
-        if (!live) return;
-        setSession(null);
-        if (error instanceof ApiError && (error.status === 401 || error.status === 404)) setPhase("anon");
-        else {
-          setBootError(errorMessage(error, "The desk could not reach the control server."));
-          setPhase("down");
-        }
-      });
+      }).catch(fail);
       return () => { live = false; };
     }
     api.session().then((next) => {
@@ -67,37 +73,23 @@ export function App() {
       setPhase("in");
       if (next.aal !== "aal2" && route.name !== "mfa") go("/mfa");
       else if (next.aal === "aal2" && route.name === "mfa") go("/");
-    }).catch((error: unknown) => {
-      if (!live) return;
-      setSession(null);
-      if (error instanceof ApiError && error.status === 401) go("/login");
-      else {
-        setBootError(errorMessage(error, "The desk could not reach the control server."));
-        setPhase("down");
-      }
-    });
+    }).catch(fail);
     return () => { live = false; };
-  }, [route, go]);
-
-  useEffect(() => {
-    if (!session || session.aal !== "aal2") return;
-    let live = true;
-    api.clients().then((data) => { if (live) setClients(data.clients); }).catch(() => { if (live) setClients([]); });
-    return () => { live = false; };
-  }, [session?.user_id, session?.aal]);
+  }, [routeKey(route), go, route.name]);
 
   async function signOut() {
-    try {
-      await api.logout();
-    } catch {
-      /* The session cookie is cleared when the server accepts the request. */
-    }
+    try { await api.logout(); } catch { /* leave the desk even if the server is quiet */ }
     setSession(null);
     go("/login");
   }
 
+  useEffect(() => {
+    const { title } = heading(route);
+    document.title = route.name === "login" ? "Sign in · FinLedger" : `${title} · FinLedger`;
+  }, [route]);
+
   if (phase === "down") {
-    return <div className="grid min-h-screen place-items-center px-6 text-center"><p role="alert">{bootError}</p></div>;
+    return <div className="grid min-h-screen place-items-center bg-background px-6 text-center text-foreground"><p role="alert">{bootError}</p></div>;
   }
   if (route.name === "login") {
     if (phase !== "anon") return <Splash />;
@@ -105,25 +97,18 @@ export function App() {
   }
   if (!session || phase === "checking") return <Splash />;
 
-  const wide = route.name === "invoice";
-  let page = <MissingPage onNavigate={go} />;
-  if (route.name === "mfa") page = <MfaPage onNavigate={go} />;
-  else if (route.name === "home") page = <ClientsPage search={search} onNavigate={go} onTrail={onTrail} />;
-  else if (route.name === "queue") page = <QueuePage clientId={route.clientId} queue={route.queue} search={search} onNavigate={go} onTrail={onTrail} />;
-  else if (route.name === "invoice") page = <InvoicePage clientId={route.clientId} documentId={route.documentId} onNavigate={go} onTrail={onTrail} />;
-  else if (route.name === "staff") page = <StaffPage firmAdmin={session.firm_admin} onNavigate={go} onTrail={onTrail} />;
-
+  const page = heading(route);
   return (
-    <Shell session={session} route={route} clients={session.aal === "aal2" ? clients : []} search={search} onSearch={setSearch} trail={trail} wide={wide} onNavigate={go} onSignOut={() => { void signOut(); }}>
-      {page}
+    <Shell session={session} route={route} onNavigate={go} onSignOut={() => { void signOut(); }}>
+      <PageHeader title={page.title} description={page.description} />
     </Shell>
   );
 }
 
 function Splash() {
   return (
-    <div className="grid min-h-screen place-items-center bg-bg text-ink">
-      <div className="text-sm font-medium tracking-tight">FinLedger</div>
+    <div className="grid min-h-screen place-items-center bg-background text-foreground">
+      <img src="/finledger-mark.png" alt="FinLedger" className="size-12 rounded-xl" />
     </div>
   );
 }

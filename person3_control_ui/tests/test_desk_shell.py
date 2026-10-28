@@ -89,9 +89,10 @@ def test_desk_copy_and_queue_order():
     theme = (ROOT / "desk" / "src" / "theme.ts").read_text(encoding="utf-8")
     router = (ROOT / "desk" / "src" / "router.ts").read_text(encoding="utf-8")
     css = (ROOT / "desk" / "src" / "styles.css").read_text(encoding="utf-8").lower()
-    for line in ("Nothing is waiting in this queue.", "Save change", "Approve and post", "Send back",
-                 "What we read", "Voucher to post", "Source", "Sign out", "Clients", "Staff"):
+    for line in ("Welcome back", "Sign out", "Clients", "Staff", "Search", "Notifications"):
         assert line in src
+    assert (ROOT / "desk" / "public" / "finledger-logo.png").is_file()
+    assert (ROOT / "desk" / "public" / "finledger-mark.png").is_file()
     assert "finledger-theme" in theme
     assert "Control plane" not in src
     labels = ['label: "New"', 'label: "Needs review"', 'label: "Approved"', 'label: "Exception"', 'label: "Posted"']

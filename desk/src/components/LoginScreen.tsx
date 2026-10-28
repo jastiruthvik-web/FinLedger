@@ -1,8 +1,9 @@
 import { Eye, EyeOff, Moon, Sun } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, api, errorMessage } from "../api";
-import { currentTheme, toggleTheme } from "../theme";
-import { Button, Input } from "./ui";
+import { ApiError, api, errorMessage } from "@/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { currentTheme, toggleTheme } from "@/theme";
 
 export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [email, setEmail] = useState("");
@@ -37,53 +38,37 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center bg-bg px-4 py-8">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-line bg-surface shadow-[var(--fl-shadow)] md:grid-cols-[minmax(0,0.92fr)_minmax(0,1fr)]">
-        <section className="relative hidden min-h-[560px] flex-col justify-between overflow-hidden bg-[#0B3A66] p-10 text-white md:flex night:bg-[#121820]">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-40"
-            style={{
-              backgroundImage: "linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px)",
-              backgroundSize: "28px 28px",
-            }}
-          />
-          <div className="relative text-sm font-medium tracking-wide text-white/80">FinLedger</div>
-          <div className="relative max-w-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#8FB4D9]">Accounts payable</p>
-            <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-tight">Review the bill. Then post the voucher.</h2>
-            <p className="mt-4 text-sm leading-6 text-white/75">A quiet desk for Indian firms. The source, what we read, and the voucher stay on one screen.</p>
-          </div>
-          <div className="relative grid grid-cols-3 gap-3 text-xs text-white/80">
-            <div className="rounded-2xl border border-white/15 bg-white/8 p-3">Clients</div>
-            <div className="rounded-2xl border border-white/15 bg-white/8 p-3">Queues</div>
-            <div className="rounded-2xl border border-white/15 bg-white/8 p-3">Vouchers</div>
-          </div>
+    <div className="grid min-h-screen place-items-center bg-background px-4 py-10">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-[28px] border border-border bg-card shadow-[var(--shadow)] md:grid-cols-2">
+        <section className="relative hidden min-h-[560px] flex-col items-center justify-center bg-[#0B1C33] px-10 md:flex">
+          <img src="/finledger-logo.png" alt="FinLedger" className="h-16 w-auto" />
+          <p className="mt-8 max-w-xs text-center text-sm leading-6 text-[#8FB4D9]">Accounts payable for Indian CA firms. Review the bill, then post the voucher.</p>
         </section>
-        <section className="relative flex flex-col justify-center px-6 py-10 sm:px-12">
+        <section className="relative flex flex-col items-center justify-center px-6 py-12 sm:px-12">
           <button
             type="button"
-            className="absolute right-5 top-5 inline-flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-sm"
+            className="absolute right-5 top-5 inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-foreground"
             aria-pressed={night}
             onClick={() => setNight(toggleTheme() === "night")}
           >
-            {night ? <Sun size={15} /> : <Moon size={15} />}
+            {night ? <Sun className="size-4" /> : <Moon className="size-4" />}
             {night ? "Day" : "Night"}
           </button>
-          <p className="text-sm font-medium text-muted">FinLedger</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight">Welcome back</h1>
-          <p className="mt-2 text-sm text-muted">Use the work email and password for your firm.</p>
-          <form className="mt-8 space-y-4" onSubmit={submit}>
-            {error && <p role="alert" className="rounded-lg border border-line bg-bg px-3 py-2 text-sm">{error}</p>}
-            <label className="block text-sm font-medium">
+          <img src="/finledger-mark.png" alt="" className="size-12 rounded-xl" />
+          <h1 className="mt-5 text-center text-3xl font-semibold tracking-tight text-foreground">Welcome back</h1>
+          <p className="mt-2 text-center text-sm text-muted-foreground">Use the work email and password for your firm.</p>
+          <form className="mt-8 w-full max-w-sm space-y-4" onSubmit={submit}>
+            {error && <p role="alert" className="rounded-md border border-border bg-muted px-3 py-2 text-sm">{error}</p>}
+            <label className="block text-sm font-medium text-foreground">
               Email
               <Input className="mt-1.5" name="email" type="email" autoComplete="username" required maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} />
             </label>
-            <label className="block text-sm font-medium">
+            <label className="block text-sm font-medium text-foreground">
               Password
               <span className="relative mt-1.5 block">
                 <Input name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required maxLength={1024} value={password} onChange={(event) => setPassword(event.target.value)} className="pr-10" />
-                <button type="button" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center text-muted" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)}>
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                <button type="button" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center text-muted-foreground" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)}>
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </span>
             </label>

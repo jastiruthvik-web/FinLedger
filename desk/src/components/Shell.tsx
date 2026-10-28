@@ -1,194 +1,135 @@
-import {
-  Bell, Building2, ChevronDown, LogOut, Menu, Moon, PanelLeft, Search, Sun, Users, X,
-} from "lucide-react";
+import { Bell, Building2, ChevronDown, LogOut, Menu, Moon, PanelLeft, Search, Sun, Users } from "lucide-react";
 import { useEffect, useId, useState, type MouseEvent, type ReactNode } from "react";
-import { clientIdOf, queueHref, QUEUES, type QueueKey, type Route } from "../router";
-import { currentTheme, toggleTheme } from "../theme";
-import type { ClientRow, Session } from "../types";
-import { cn } from "../lib/cn";
-import { Button } from "./ui";
+import { api } from "@/api";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
+import { clientIdOf, queueHref, QUEUES, type QueueKey, type Route } from "@/router";
+import { currentTheme, toggleTheme } from "@/theme";
+import type { ClientRow, Session } from "@/types";
 
 export function Shell({
   session,
   route,
-  clients,
-  search,
-  onSearch,
-  trail,
-  wide,
   onNavigate,
   onSignOut,
   children,
 }: {
   session: Session;
   route: Route;
-  clients: ClientRow[];
-  search: string;
-  onSearch: (value: string) => void;
-  trail: string[];
-  wide?: boolean;
   onNavigate: (url: string) => void;
   onSignOut: () => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [alerts, setAlerts] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [query, setQuery] = useState("");
   const [night, setNight] = useState(currentTheme() === "night");
   const searchId = useId();
   const clientId = clientIdOf(route);
-  const activeQueue = currentQueue(route);
+
+  useEffect(() => { setMobileOpen(false); }, [route]);
 
   useEffect(() => {
-    setOpen(false);
-    setAlerts(false);
-  }, [route]);
+    if (session.aal !== "aal2") return;
+    let live = true;
+    api.clients().then((data) => { if (live) setClients(data.clients); }).catch(() => { if (live) setClients([]); });
+    return () => { live = false; };
+  }, [session.aal, session.user_id]);
 
   function follow(event: MouseEvent, url: string) {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
     event.preventDefault();
     onNavigate(url);
   }
 
-  return (
-    <div className="flex min-h-screen bg-bg text-ink">
-      {open && (
-        <button aria-label="Close menu" className="fixed inset-0 z-30 bg-[#0E1216]/40 lg:hidden" onClick={() => setOpen(false)} />
-      )}
-      <aside
-        id="desk-menu"
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-sidebar transition-transform lg:static lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full",
-          collapsed && "lg:w-[76px]",
-        )}
-      >
-        <div className="flex h-16 items-center gap-2 px-4">
-          <div className="grid size-8 place-items-center rounded-lg bg-[#0B3A66] text-sm font-semibold text-white night:bg-[#1E3A5F] night:text-[#8FB4D9]">
-            F
-          </div>
-          <div className={cn("min-w-0", collapsed && "lg:hidden")}>
-            <div className="truncate text-sm font-semibold tracking-tight">FinLedger</div>
-            <div className="truncate text-xs text-muted">Review desk</div>
-          </div>
-        </div>
-        <nav aria-label="Pages" className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4">
-          <NavLink href="/" current={route.name === "home"} collapsed={collapsed} icon={<Building2 size={18} />} onClick={(event) => follow(event, "/")}>
-            Clients
-          </NavLink>
-          <div className={cn("mt-4 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted", collapsed && "lg:sr-only")}>
-            Review
-          </div>
-          {clientId ? (
-            <div role="group" aria-label="Review" className="mt-1 flex flex-col gap-0.5">
-              {QUEUES.map((queue) => (
-                <NavLink
-                  key={queue.key}
-                  href={queueHref(clientId, queue.key)}
-                  current={activeQueue === queue.key}
-                  collapsed={collapsed}
-                  nested
-                  onClick={(event) => follow(event, queueHref(clientId, queue.key))}
-                >
-                  {queue.label}
-                </NavLink>
-              ))}
-            </div>
-          ) : (
-            <p className={cn("px-2 text-xs text-muted", collapsed && "lg:hidden")}>Open a client to see queues.</p>
-          )}
-          <div className="mt-auto flex flex-col gap-1 pt-6">
-            {session.firm_admin && (
-              <NavLink href="/staff" current={route.name === "staff"} collapsed={collapsed} icon={<Users size={18} />} onClick={(event) => follow(event, "/staff")}>
-                Staff
-              </NavLink>
-            )}
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="flex h-10 items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-ink/5"
-            >
-              <LogOut size={18} />
-              <span className={cn(collapsed && "lg:sr-only")}>Sign out</span>
-            </button>
-          </div>
-        </nav>
-      </aside>
+  const nav = (
+    <SidebarNav
+      session={session}
+      route={route}
+      collapsed={collapsed}
+      onFollow={follow}
+      onSignOut={onSignOut}
+    />
+  );
 
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <aside className={cn("sticky top-0 hidden h-screen shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex lg:flex-col", collapsed ? "w-[76px]" : "w-64")}>
+        {nav}
+      </aside>
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent aria-describedby={undefined}>
+          <SheetTitle className="sr-only">Menu</SheetTitle>
+          <SidebarNav session={session} route={route} collapsed={false} onFollow={follow} onSignOut={onSignOut} />
+        </SheetContent>
+      </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface/90 px-4 backdrop-blur">
-          <Button variant="ghost" size="sm" className="lg:hidden" aria-label="Menu" aria-expanded={open} aria-controls="desk-menu" onClick={() => setOpen((value) => !value)}>
-            {open ? <X size={18} /> : <Menu size={18} />}
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-2 border-b border-border bg-card/90 px-3 backdrop-blur sm:px-4">
+          <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}>
+            <Menu />
           </Button>
-          <Button variant="ghost" size="sm" className="hidden lg:inline-flex" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed((value) => !value)}>
-            <PanelLeft size={18} />
+          <Button variant="ghost" size="icon" className="hidden lg:inline-flex" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed((value) => !value)}>
+            <PanelLeft />
           </Button>
-          <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1 text-sm text-muted sm:flex">
-            {trail.map((part, index) => (
-              <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
-                {index > 0 && <span aria-hidden="true">/</span>}
-                <span className={cn("truncate", index === trail.length - 1 && "font-medium text-ink")}>{part}</span>
-              </span>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
-            <label htmlFor={searchId} className="relative hidden md:block">
-              <span className="sr-only">Search this page</span>
-              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-              <input
-                id={searchId}
-                value={search}
-                onChange={(event) => onSearch(event.target.value)}
-                placeholder="Search this page"
-                className="h-9 w-56 rounded-lg border border-line bg-bg pl-9 pr-3 text-sm"
-              />
-            </label>
-            {clients.length > 0 && (
-              <label className="relative hidden items-center lg:flex">
-                <span className="sr-only">Client</span>
-                <select
-                  className="h-9 appearance-none rounded-lg border border-line bg-bg py-0 pl-3 pr-8 text-sm"
-                  value={clientId ?? ""}
-                  onChange={(event) => {
-                    if (event.target.value) onNavigate(queueHref(event.target.value, "needs_review"));
-                  }}
-                >
-                  <option value="">All clients</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>{client.name}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="pointer-events-none absolute right-2 text-muted" />
-              </label>
-            )}
-            <div className="relative">
-              <Button variant="ghost" size="sm" aria-expanded={alerts} aria-label="Alerts" onClick={() => setAlerts((value) => !value)}>
-                <Bell size={18} />
+          <label htmlFor={searchId} className="relative ml-auto hidden min-w-0 md:block">
+            <span className="sr-only">Search</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input id={searchId} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="h-9 w-56 pl-9" />
+          </label>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="hidden max-w-48 lg:inline-flex">
+                <span className="truncate">{clients.find((client) => client.id === clientId)?.name ?? "All clients"}</span>
+                <ChevronDown />
               </Button>
-              {alerts && (
-                <div className="absolute right-0 mt-2 w-64 rounded-xl border border-line bg-surface p-3 text-sm shadow-[var(--fl-shadow)]">
-                  No alerts right now.
-                </div>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={night}
-              onClick={() => setNight(toggleTheme() === "night")}
-            >
-              {night ? <Sun size={16} /> : <Moon size={16} />}
-              <span className="hidden sm:inline">{night ? "Day" : "Night"}</span>
-            </Button>
-            <div className="hidden items-center gap-2 rounded-full border border-line py-1 pl-1 pr-3 text-sm sm:flex">
-              <span className="grid size-7 place-items-center rounded-full bg-[#0B3A66] text-xs text-white night:bg-[#1E3A5F] night:text-[#8FB4D9]">
-                {session.firm_admin ? "A" : "S"}
-              </span>
-              {session.firm_admin ? "Firm admin" : "Staff"}
-            </div>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Client</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => onNavigate("/")}>All clients</DropdownMenuItem>
+              {clients.map((client) => (
+                <DropdownMenuItem key={client.id} onSelect={() => onNavigate(queueHref(client.id, "needs_review"))}>
+                  {client.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Notifications">
+                <Bell />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+              <DropdownMenuItem disabled>No alerts right now.</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="sm" aria-pressed={night} onClick={() => setNight(toggleTheme() === "night")}>
+            {night ? <Sun /> : <Moon />}
+            <span className="hidden sm:inline">{night ? "Day" : "Night"}</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2 px-2">
+                <img src="/finledger-mark.png" alt="" className="size-7 rounded-md" />
+                <span className="hidden sm:inline">{session.firm_admin ? "Firm admin" : "Staff"}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{session.firm_admin ? "Firm admin" : "Staff"}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onSignOut}>
+                <LogOut />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </header>
-        <main className={cn("mx-auto w-full flex-1 px-4 py-6 sm:px-6", wide ? "max-w-[1440px]" : "max-w-6xl")}>
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
           {children}
         </main>
       </div>
@@ -196,7 +137,61 @@ export function Shell({
   );
 }
 
-function NavLink({
+function SidebarNav({
+  session, route, collapsed, onFollow, onSignOut,
+}: {
+  session: Session;
+  route: Route;
+  collapsed: boolean;
+  onFollow: (event: MouseEvent, url: string) => void;
+  onSignOut: () => void;
+}) {
+  const clientId = clientIdOf(route);
+  const activeQueue = rememberedQueue(route);
+  return (
+    <div className="flex h-full flex-col">
+      <div className={cn("flex h-16 items-center px-4", collapsed && "lg:justify-center lg:px-2")}>
+        <a href="/" onClick={(event) => onFollow(event, "/")} aria-label="FinLedger" className="flex items-center gap-2">
+          <img src="/finledger-mark.png" alt="" className="size-9 rounded-md" />
+          <span className={cn("text-sm font-semibold tracking-tight text-sidebar-foreground", collapsed && "lg:hidden")}>FinLedger</span>
+        </a>
+      </div>
+      <nav id="desk-menu" aria-label="Pages" className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-4">
+        <NavItem href="/" current={route.name === "home"} collapsed={collapsed} icon={<Building2 className="size-4" />} onClick={(event) => onFollow(event, "/")}>Clients</NavItem>
+        <p className={cn("mt-4 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground", collapsed && "lg:sr-only")}>Review</p>
+        {clientId ? (
+          <div role="group" aria-label="Review" className="flex flex-col gap-0.5">
+            {QUEUES.map((queue) => (
+              <NavItem
+                key={queue.key}
+                href={queueHref(clientId, queue.key)}
+                current={activeQueue === queue.key}
+                collapsed={collapsed}
+                nested
+                onClick={(event) => onFollow(event, queueHref(clientId, queue.key))}
+              >
+                {queue.label}
+              </NavItem>
+            ))}
+          </div>
+        ) : (
+          <p className={cn("px-2 text-xs text-muted-foreground", collapsed && "lg:hidden")}>Open a client to see queues.</p>
+        )}
+        <div className="mt-auto flex flex-col gap-1 pt-6">
+          {session.firm_admin && (
+            <NavItem href="/staff" current={route.name === "staff"} collapsed={collapsed} icon={<Users className="size-4" />} onClick={(event) => onFollow(event, "/staff")}>Staff</NavItem>
+          )}
+          <button type="button" onClick={onSignOut} className="flex h-10 items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-sidebar-accent">
+            <LogOut className="size-4" />
+            <span className={cn(collapsed && "lg:sr-only")}>Sign out</span>
+          </button>
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+function NavItem({
   href, current, collapsed, nested, icon, children, onClick,
 }: {
   href: string;
@@ -213,9 +208,9 @@ function NavLink({
       aria-current={current ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "flex h-10 items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-ink/5",
-        nested && "pl-3 text-[13px]",
-        current && "bg-ink/8 font-medium",
+        "flex h-10 items-center gap-2 rounded-md px-2 text-sm hover:bg-sidebar-accent",
+        nested && "pl-3",
+        current && "bg-sidebar-accent font-medium",
         collapsed && "lg:justify-center lg:px-0",
       )}
     >
@@ -225,7 +220,7 @@ function NavLink({
   );
 }
 
-function currentQueue(route: Route): QueueKey | null {
+function rememberedQueue(route: Route): QueueKey | null {
   if (route.name === "queue") return route.queue;
   if (route.name !== "invoice") return null;
   try {
@@ -234,22 +229,4 @@ function currentQueue(route: Route): QueueKey | null {
   } catch {
     return null;
   }
-}
-
-export function PageHeader({
-  title, description, actions,
-}: {
-  title: string;
-  description: string;
-  actions?: ReactNode;
-}) {
-  return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted">{description}</p>
-      </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-    </div>
-  );
 }

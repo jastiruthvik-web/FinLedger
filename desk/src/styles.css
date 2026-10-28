@@ -1,53 +1,84 @@
 @import "tailwindcss";
-
-@custom-variant night (&:where([data-theme="night"], [data-theme="night"] *));
 @import "@fontsource/inter/400.css";
 @import "@fontsource/inter/500.css";
 @import "@fontsource/inter/600.css";
 
-/* Brand anchors used by the desk: #0B3A66 #1D4E89 #0E1216 #8FB4D9 #1E3A5F */
+@custom-variant dark (&:where([data-theme="night"], [data-theme="night"] *));
+
+/* Brand anchors: #0B3A66 #1D4E89 #0E1216 #8FB4D9 #1E3A5F */
 :root {
   color-scheme: light;
-  --fl-bg: #f4f6f8;
-  --fl-surface: #ffffff;
-  --fl-ink: #0b3a66;
-  --fl-muted: #4d6278;
-  --fl-line: #e3e8ef;
-  --fl-button: #1d4e89;
-  --fl-button-ink: #ffffff;
-  --fl-accent: #1a5f68;
-  --fl-warm: #8a6232;
-  --fl-shadow: 0 1px 2px rgba(11, 58, 102, 0.05), 0 16px 40px rgba(11, 58, 102, 0.06);
-  --fl-sidebar: #ffffff;
+  --background: #f4f6f8;
+  --foreground: #0b3a66;
+  --card: #ffffff;
+  --card-foreground: #0b3a66;
+  --primary: #0b3a66;
+  --primary-foreground: #ffffff;
+  --secondary: #e7eef6;
+  --secondary-foreground: #0b3a66;
+  --muted: #eef2f6;
+  --muted-foreground: #4d6278;
+  --accent: #e5f2f1;
+  --accent-foreground: #1a5f68;
+  --border: #e3e8ef;
+  --input: #d5dee8;
+  --ring: #1d4e89;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b3a66;
+  --sidebar-accent: #eef3f8;
+  --sidebar-border: #e3e8ef;
+  --radius: 0.75rem;
+  --shadow: 0 1px 2px rgba(11, 58, 102, 0.05), 0 18px 40px rgba(11, 58, 102, 0.06);
 }
 
 [data-theme="night"] {
   color-scheme: dark;
-  --fl-bg: #0e1216;
-  --fl-surface: #171e26;
-  --fl-ink: #8fb4d9;
-  --fl-muted: #7d98b4;
-  --fl-line: #243140;
-  --fl-button: #1e3a5f;
-  --fl-button-ink: #e7f1fa;
-  --fl-accent: #8ec9c2;
-  --fl-warm: #d7b48a;
-  --fl-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
-  --fl-sidebar: #12181f;
+  --background: #0e1216;
+  --foreground: #8fb4d9;
+  --card: #171e26;
+  --card-foreground: #8fb4d9;
+  --primary: #1e3a5f;
+  --primary-foreground: #e7f1fa;
+  --secondary: #1a2330;
+  --secondary-foreground: #8fb4d9;
+  --muted: #151b22;
+  --muted-foreground: #7d98b4;
+  --accent: #16343a;
+  --accent-foreground: #8ec9c2;
+  --border: #243140;
+  --input: #2a3848;
+  --ring: #8fb4d9;
+  --sidebar: #12181f;
+  --sidebar-foreground: #8fb4d9;
+  --sidebar-accent: #1c2632;
+  --sidebar-border: #243140;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --color-bg: var(--fl-bg);
-  --color-surface: var(--fl-surface);
-  --color-ink: var(--fl-ink);
-  --color-muted: var(--fl-muted);
-  --color-line: var(--fl-line);
-  --color-button: var(--fl-button);
-  --color-button-ink: var(--fl-button-ink);
-  --color-accent: var(--fl-accent);
-  --color-warm: var(--fl-warm);
-  --color-sidebar: var(--fl-sidebar);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 }
 
 @layer base {
@@ -55,24 +86,18 @@
   html, body, #root { min-height: 100%; }
   body {
     margin: 0;
-    background: var(--fl-bg);
-    color: var(--fl-ink);
+    background: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 15px;
     line-height: 1.5;
-    transition: background-color 180ms ease, color 180ms ease;
   }
-  button, input, select { font: inherit; color: inherit; }
-  a { color: inherit; }
-  :focus-visible { outline: 2px solid var(--fl-button); outline-offset: 2px; }
-  [data-theme="night"] :focus-visible { outline-color: #8fb4d9; }
+  button, input, select { font: inherit; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   ::selection { background: #1d4e89; color: #ffffff; }
   [data-theme="night"] ::selection { background: #1e3a5f; color: #8fb4d9; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation: none !important;
-    transition: none !important;
-  }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
