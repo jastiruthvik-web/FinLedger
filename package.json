@@ -1,0 +1,10 @@
+{
+  "name": "finledger",
+  "private": true,
+  "scripts": {
+    "prebuild": "npm --prefix site ci",
+    "build": "npm --prefix site run build",
+    "dev": "npm --prefix site run dev",
+    "start": "npm --prefix site run start"
+  }
+}
