@@ -34,25 +34,25 @@
 [data-theme="night"] {
   color-scheme: dark;
   --background: #0e1216;
-  --foreground: #8fb4d9;
-  --card: #171e26;
-  --card-foreground: #8fb4d9;
+  --foreground: #9aabbc;
+  --card: #1c2530;
+  --card-foreground: #c5d0db;
   --primary: #1e3a5f;
-  --primary-foreground: #e7f1fa;
-  --secondary: #1a2330;
-  --secondary-foreground: #8fb4d9;
-  --muted: #151b22;
-  --muted-foreground: #7d98b4;
-  --accent: #16343a;
-  --accent-foreground: #8ec9c2;
-  --border: #243140;
-  --input: #2a3848;
+  --primary-foreground: #d7e2ec;
+  --secondary: #24303c;
+  --secondary-foreground: #b7c4d1;
+  --muted: #1a232d;
+  --muted-foreground: #8b9dad;
+  --accent: #1a3336;
+  --accent-foreground: #9ec4be;
+  --border: #314052;
+  --input: #314052;
   --ring: #8fb4d9;
-  --sidebar: #12181f;
-  --sidebar-foreground: #8fb4d9;
-  --sidebar-accent: #1c2632;
-  --sidebar-border: #243140;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+  --sidebar: #161d26;
+  --sidebar-foreground: #b7c4d1;
+  --sidebar-accent: #222c38;
+  --sidebar-border: #314052;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 @theme inline {
@@ -89,8 +89,8 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 1.5;
+    font-size: 14px;
+    line-height: 1.45;
   }
   button, input, select { font: inherit; }
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

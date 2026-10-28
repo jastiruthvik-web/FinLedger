@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, errorMessage } from "@/api";
 import { LoginScreen } from "@/components/LoginScreen";
 import { Shell } from "@/components/Shell";
+import { clientById } from "@/data/mock";
+import { ClientsPage, ClientDetail } from "@/pages/Clients";
+import { Dashboard } from "@/pages/Dashboard";
 import { PageHeader } from "@/pages/Placeholder";
+import { TransactionsPage } from "@/pages/Transactions";
 import { parseRoute, QUEUES, type Route } from "@/router";
 import type { Session } from "@/types";
 
@@ -11,11 +15,15 @@ type Phase = "checking" | "anon" | "in" | "down";
 function routeKey(route: Route) {
   if (route.name === "queue") return `queue:${route.clientId}:${route.queue}`;
   if (route.name === "invoice") return `invoice:${route.clientId}:${route.documentId}`;
+  if (route.name === "client") return `client:${route.clientId}`;
   return route.name;
 }
 
 function heading(route: Route): { title: string; description: string } {
-  if (route.name === "home") return { title: "Clients", description: "Open a client to work its queues." };
+  if (route.name === "home") return { title: "Dashboard", description: "Accounts payable across the firm." };
+  if (route.name === "clients") return { title: "Clients", description: "Companies on the firm’s books." };
+  if (route.name === "client") return { title: clientById(route.clientId)?.name ?? "Client", description: "Bills and status for this client." };
+  if (route.name === "transactions") return { title: "Reconciliation", description: "Bank lines against purchase bills." };
   if (route.name === "queue") {
     const queue = QUEUES.find((item) => item.key === route.queue) ?? QUEUES[1];
     return { title: queue.label, description: queue.context };
@@ -98,9 +106,14 @@ export function App() {
   if (!session || phase === "checking") return <Splash />;
 
   const page = heading(route);
+  let body = <PageHeader title={page.title} description={page.description} />;
+  if (route.name === "home") body = <Dashboard onNavigate={go} />;
+  else if (route.name === "clients") body = <ClientsPage onNavigate={go} />;
+  else if (route.name === "client") body = <ClientDetail clientId={route.clientId} onNavigate={go} />;
+  else if (route.name === "transactions") body = <TransactionsPage />;
   return (
     <Shell session={session} route={route} onNavigate={go} onSignOut={() => { void signOut(); }}>
-      <PageHeader title={page.title} description={page.description} />
+      {body}
     </Shell>
   );
 }

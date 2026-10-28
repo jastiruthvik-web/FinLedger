@@ -14,6 +14,9 @@ export type Route =
   | { name: "login" }
   | { name: "mfa" }
   | { name: "home" }
+  | { name: "clients" }
+  | { name: "client"; clientId: string }
+  | { name: "transactions" }
   | { name: "queue"; clientId: string; queue: QueueKey }
   | { name: "invoice"; clientId: string; documentId: string }
   | { name: "staff" }
@@ -31,20 +34,22 @@ export function parseRoute(path: string, search: string): Route {
   if (clean === "/login") return { name: "login" };
   if (clean === "/mfa") return { name: "mfa" };
   if (clean === "/") return { name: "home" };
+  if (clean === "/clients") return { name: "clients" };
+  if (clean === "/transactions") return { name: "transactions" };
   if (clean === "/staff") return { name: "staff" };
   let match = clean.match(new RegExp(`^/clients/(${UUID})/invoices/(${UUID})$`));
   if (match) return { name: "invoice", clientId: match[1], documentId: match[2] };
   match = clean.match(new RegExp(`^/clients/(${UUID})$`));
   if (match) {
-    const raw = new URLSearchParams(search).get("queue") || "needs_review";
-    const queue = (QUEUE_KEYS.has(raw) ? raw : "needs_review") as QueueKey;
-    return { name: "queue", clientId: match[1], queue };
+    const raw = new URLSearchParams(search).get("queue");
+    if (raw && QUEUE_KEYS.has(raw)) return { name: "queue", clientId: match[1], queue: raw as QueueKey };
+    return { name: "client", clientId: match[1] };
   }
   return { name: "missing" };
 }
 
 export function clientIdOf(route: Route): string | null {
-  if (route.name === "queue" || route.name === "invoice") return route.clientId;
+  if (route.name === "queue" || route.name === "invoice" || route.name === "client") return route.clientId;
   return null;
 }
 
