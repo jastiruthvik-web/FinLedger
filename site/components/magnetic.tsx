@@ -35,7 +35,7 @@ export function Magnetic({
     <motion.div
       ref={ref}
       className={className}
-      style={{ x: sx, y: sy, display: "inline-flex" }}
+      style={{ x: sx, y: sy }}
       onMouseMove={onMove}
       onMouseLeave={() => {
         x.set(0);

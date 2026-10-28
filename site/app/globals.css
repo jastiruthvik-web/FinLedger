@@ -188,6 +188,8 @@ p { text-wrap: pretty; }
 
 .btn-ghost:hover, .btn-primary:hover { border-color: var(--gold); }
 
+.magnetic { display: inline-flex; }
+
 .nav {
   position: fixed;
   inset: 0 0 auto 0;
@@ -414,7 +416,7 @@ p { text-wrap: pretty; }
 
 .hero-line { display: block; overflow: hidden; }
 
-.hero-line span { display: block; }
+.hero-line span { display: block; padding: 0.08em 0 0.14em; }
 
 .display { color: var(--display); font-style: italic; font-weight: 460; }
 
