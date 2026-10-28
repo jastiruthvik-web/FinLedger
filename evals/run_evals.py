@@ -103,6 +103,109 @@ def evaluate_extraction_fixtures(fixtures_dir: Path, provider_mode: str) -> Extr
     return ExtractionEvalReport(len(markdown_files), matched, failures, provider_mode)
 
 
+@dataclass(frozen=True)
+class LiveEvalReport:
+    total: int
+    passed: int
+    failures: list[str]
+    model: str
+    location: str
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float | None
+
+    @property
+    def cost_label(self) -> str:
+        if self.cost_usd is None:
+            return "unpriced"
+        return f"{self.cost_usd:.6f}"
+
+
+def evaluate_live_fixtures(fixtures_dir: Path, router, settings) -> LiveEvalReport:
+    """Structural check on synthetic markdown. Does not compare mock goldens or record invoice text."""
+    from extract.extract_worker import ExtractWorker
+    from extract.failures import ExtractFailure
+
+    writer = UsageWriter()
+    worker = ExtractWorker(writer, router)
+    failures = []
+    markdown_files = sorted(fixtures_dir.glob("*.md"))
+    for path in markdown_files:
+        try:
+            worker.extract("synthetic", path.stem, path.read_text(encoding="utf-8"))
+        except ExtractFailure as exc:
+            failures.append(f"{path.name}: {exc.category}")
+        except Exception:
+            failures.append(f"{path.name}: live extraction failed")
+    tokens_in = sum(row.tokens_in for row in writer.logs)
+    tokens_out = sum(row.tokens_out for row in writer.logs)
+    costs = [row.cost_usd for row in writer.logs]
+    cost = None if not costs or any(item is None for item in costs) else float(sum(costs))
+    passed = len(markdown_files) - len(failures)
+    if not markdown_files:
+        failures.append("No synthetic markdown fixtures found")
+    return LiveEvalReport(
+        len(markdown_files), passed, failures, settings.model_extract, settings.gemini_location,
+        tokens_in, tokens_out, cost,
+    )
+
+
+def render_live_report(report: LiveEvalReport) -> str:
+    status = "PASS" if report.total and report.passed == report.total and not report.failures else "FAIL"
+    lines = [
+        "# FinLedger live synthetic extraction",
+        "",
+        "> Opt-in only. This records the explicit model, location, token counts, and cost. It is not a mock exact-match run.",
+        "",
+        f"- **Status:** {status}",
+        f"- **Provider mode:** `gemini`",
+        f"- **Model:** `{report.model}`",
+        f"- **Location:** `{report.location}`",
+        f"- **Synthetic documents:** {report.total}",
+        f"- **Structurally valid:** {report.passed}",
+        f"- **Tokens in:** {report.tokens_in}",
+        f"- **Tokens out:** {report.tokens_out}",
+        f"- **Cost USD:** {report.cost_label}",
+        "",
+        "## Failures",
+        "",
+    ]
+    lines.extend(f"- {failure}" for failure in report.failures)
+    if not report.failures:
+        lines.append("- None")
+    return "\n".join(lines) + "\n"
+
+
+def run_live_synthetic_eval(args) -> int:
+    """Separate from CI. Refuses mock and refuses to start without the explicit live settings."""
+    if args.provider_mode != "gemini":
+        print("FAIL: --live-synthetic-eval does not fall back to another provider", file=sys.stderr)
+        return 1
+    try:
+        settings = Settings.from_env()
+        if settings.provider != "gemini":
+            raise RuntimeError("live gemini does not fall back to another provider")
+        from usage.live_gemini import build_explicit_transport
+        from usage.providers.transport import TransportError
+
+        transport = build_explicit_transport(settings)
+        router = ModelRouter(settings, gemini_transport=transport)
+    except (RuntimeError, ValueError, TransportError) as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
+    report = evaluate_live_fixtures(args.fixtures_dir, router, settings)
+    args.report.write_text(render_live_report(report), encoding="utf-8")
+    print(
+        "Live synthetic: "
+        f"{report.passed}/{report.total} structurally valid; model={report.model}; "
+        f"location={report.location}; tokens_in={report.tokens_in}; tokens_out={report.tokens_out}; "
+        f"cost={report.cost_label}"
+    )
+    for failure in report.failures:
+        print(f"FAIL: {failure}", file=sys.stderr)
+    return 0 if report.total and not report.failures else 1
+
+
 def render_report(report: EvalReport, extraction: ExtractionEvalReport) -> str:
     status = "PASS" if report.total and not report.failures and extraction.total and not extraction.failures else "FAIL"
     lines = ["# FinLedger Person 1 Deterministic Evaluation Report", "",
@@ -134,6 +237,8 @@ def main(argv=None) -> int:
         help="Opt-in synthetic live-provider benchmark (off by default; not for CI).",
     )
     args = parser.parse_args(argv)
+    if args.live_synthetic_eval:
+        return run_live_synthetic_eval(args)
     if args.provider_mode != "mock" and not args.live_synthetic_eval:
         print(
             "FAIL: non-mock provider mode requires --live-synthetic-eval (owner-approved account only)",

@@ -307,7 +307,7 @@ def test_client_makes_one_attempt_when_the_status_is_retryable(loopback_only):
     assert box["accepted"] == 1
 
 
-def test_hosted_router_still_refuses_gemini_when_a_client_is_built(monkeypatch):
+def test_hosted_router_accepts_a_passed_client_without_opening_a_socket(monkeypatch):
     monkeypatch.setenv("FINLEDGER_ENV", "staging")
 
     def exploded(*_args, **_kwargs):
@@ -316,8 +316,9 @@ def test_hosted_router_still_refuses_gemini_when_a_client_is_built(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", exploded)
     client = GeminiHttpClient(connect=exploded)
     transport = HttpGeminiTransport(credential=SECRET, project=PROJECT, http_client=client)
-    with pytest.raises(RuntimeError, match="gemini LLM provider cannot run in a hosted environment"):
-        ModelRouter(Settings(provider="gemini", gemini_location=LOCATION), gemini_transport=transport)
+    router = ModelRouter(Settings(provider="gemini", gemini_location=LOCATION), gemini_transport=transport)
+    assert router.provider.transport is transport
+    assert "GeminiHttpClient(" not in inspect.getsource(inspect.getmodule(ModelRouter))
 
 
 def test_client_rejects_nonfinite_bounds():

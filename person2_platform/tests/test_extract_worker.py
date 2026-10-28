@@ -224,5 +224,43 @@ def test_durable_cap_refusal_leaves_the_document_unextracted(world, client, conn
 def test_hosted_environment_refuses_mock_provider(monkeypatch):
     monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "mock")
     monkeypatch.setenv("FINLEDGER_ENV", "staging")
+    monkeypatch.delenv("FINLEDGER_GEMINI_LIVE", raising=False)
     with pytest.raises(RuntimeError, match="hosted"):
         extract_worker.default_extract()
+
+
+def test_live_flag_does_not_fall_back_to_mock(monkeypatch):
+    monkeypatch.setenv("FINLEDGER_GEMINI_LIVE", "1")
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("FINLEDGER_ENV", "staging")
+    monkeypatch.setenv("FINLEDGER_GEMINI_CREDENTIAL", "CANARYSECRET")
+    with pytest.raises(RuntimeError, match="does not fall back to another provider") as exc:
+        extract_worker.default_extract()
+    assert "CANARYSECRET" not in str(exc.value)
+
+
+def test_hosted_gemini_without_the_live_switch_is_refused(monkeypatch):
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("FINLEDGER_GEMINI_LOCATION", "asia-south1")
+    monkeypatch.setenv("FINLEDGER_MODEL_EXTRACT", "gemini-2.5-flash")
+    monkeypatch.setenv("FINLEDGER_ENV", "production")
+    monkeypatch.delenv("FINLEDGER_GEMINI_LIVE", raising=False)
+    with pytest.raises(RuntimeError, match="gemini LLM provider cannot run in a hosted environment"):
+        extract_worker.default_extract()
+
+
+def test_live_switch_wires_the_explicit_client_without_opening_a_socket(monkeypatch):
+    import inspect
+    import socket
+
+    monkeypatch.setenv("FINLEDGER_GEMINI_LIVE", "1")
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("FINLEDGER_ENV", "production")
+    monkeypatch.setenv("FINLEDGER_GEMINI_LOCATION", "asia-south1")
+    monkeypatch.setenv("FINLEDGER_MODEL_EXTRACT", "gemini-2.5-flash")
+    monkeypatch.setenv("FINLEDGER_GEMINI_PROJECT", "finledger-local")
+    monkeypatch.setenv("FINLEDGER_GEMINI_CREDENTIAL", "CANARYSECRET")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("socket")))
+    assert callable(extract_worker.default_extract())
+    assert "GeminiHttpClient(" not in inspect.getsource(extract_worker.default_extract)
+    assert "CANARYSECRET" not in inspect.getsource(extract_worker.default_extract)

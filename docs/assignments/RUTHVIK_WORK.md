@@ -1,10 +1,22 @@
 # Ruthvik — AI integration, controls and release QA
 
-Updated 2026-10-22. This is Ruthvik's only active work file, combining his original release
+Updated 2026-10-27. This is Ruthvik's only active work file, combining his original release
 assignment and the PR #39 review follow-ups. Own AI transport/accounting and runtime wiring,
 durable adapter integration, controls/UI fixes, detailed Auth/workflow QA and release evidence.
 [Harshith](HARSHITH_WORK.md) owns backend migration/consumer implementation and operations;
 [Ryan](RYAN_WORK.md) retains approvals/private access and final acceptance. Do not duplicate work.
+
+## Current
+
+Base is `b8cf3a3`. That main already has migration `014`, the `score-worker` command, and
+`default_extract(conn)` durable wiring (`PostgresKillSwitch` and `PostgresUsageWriter` on the
+worker connection). `default_extract()` with no connection is still the in-memory path for
+local tools. There is a score consumer.
+
+`feat/local-journey-proof` behavior commit `e589018` proves upload → ingest → extract → score
+→ human correction and approval on a throwaway cluster with the mock provider, including the
+failure paths in section 4. It also adds the opt-in live Gemini switch. That switch was not turned on.
+Live and hosted boxes in section 5 stay open. Counts are in [RELEASE_EVIDENCE.md](../RELEASE_EVIDENCE.md).
 
 ## Start here
 
@@ -37,8 +49,9 @@ Delivered: injected-HTTP Gemini request/response handling and tests, object-key 
 clearer queue/failure labels, safer form-validation output, review regressions and fake
 invite/password/MFA/logout coverage. Keep those tests; do not repeat completed implementation.
 
-**Verdict: useful local milestone, not completion of the entire release assignment.**
-No live provider, hosted Auth, deployment or full extraction-to-review proof was demonstrated.
+**Verdict at that review: useful local milestone, not completion of the entire release assignment.**
+At that review, no live provider, hosted Auth, deployment, or full extraction-to-review proof
+was demonstrated. The local journey proof has since landed; live and hosted proof have not.
 Your report correctly records most limits but assigns some engineering verification to Ryan.
 Use the ownership below; Ryan retains only his short owner checklist.
 
@@ -103,9 +116,10 @@ Do not author a competing migration/consumer.
   adapters to the reviewed real worker path, not the test-only SQL overlay or in-memory defaults.
   `ModelRouter(..., kill_switch=...)` accepts `PostgresKillSwitch`. `complete()` reserves, calls the
   model, then inserts `llm_usage_rows` and calls `llm_reconcile_tokens` in one short `tenant()`
-  transaction on that hold's id. `default_extract()` is still in-memory; Harshith wires the switch
-  and `PostgresUsageWriter` there. Unpriced Gemini (`cost_computed` false) does not insert
-  `cost_usd = 0`; that hold stays `held` until a later migration can store an unpriced call.
+  transaction on that hold's id. On `b8cf3a3`, `default_extract(conn)` passes that connection into
+  `PostgresKillSwitch` and `PostgresUsageWriter`. `default_extract()` with no connection stays in
+  memory. Migration `014` on that same main stores an unpriced call with `cost_usd` null. An
+  unpriced success is not inserted as `cost_usd = 0`.
 - [x] Verify reservation/usage persistence after restart, concurrent workers and tenant isolation.
   Define recovery for a provider response followed by DB failure so a retry cannot hide usage.
   Proved on a throwaway cluster only. A failed settle leaves the hold `held`. A timeout with no
@@ -123,11 +137,18 @@ Do not author a competing migration/consumer.
   expired holds would be a new migration by Harshith. This branch does not request one for this rule.
   The existing expiry tests remain the regression. A timeout with no body is a separate case and can
   stay uncounted: release runs only when the attempt received no body.
-- [ ] Integrate extraction into scoring/mapping/review and test replay, lease expiry,
+- [x] Integrate extraction into scoring/mapping/review and test replay, lease expiry,
   late results, schema failures, scanner outage, caps and retry exhaustion on synthetic data.
-  The mock score payload now passes `validate_invoice` (`extra="forbid"` kept; unknown vendor
-  fields still fail). There is still no score consumer. Who writes it is not agreed, so this
-  branch does not add one.
+  The mock score payload passes `validate_invoice` (`extra="forbid"` kept; unknown vendor
+  fields still fail). `score-worker` claims `score`, writes `scored` or `exception`, and is a
+  CLI command on `b8cf3a3`. Mapping stays in the review service; there is no `map-worker`.
+  `person3_control_ui/tests/test_local_journey.py` on `e589018` runs the local journey on a
+  throwaway cluster: happy path upload → ingest → extract → score → human correction and
+  approval; desk label `Queued for extraction` on `received`, then `Scored`; replay does not
+  double-write; a lost lease does not settle a late result; a schema-invalid invoice becomes
+  `canonical_invoice_rejected` and does not retry; scanner failure stays unscanned and can
+  retry; `ai_budget_exceeded` is permanent; provider timeouts go `dead` after 5; a statement
+  and an object key outside `{client_id}/` do not call the model. Mock provider only.
 - [x] Independently verify automation-maker/human-editor separation with Harshith's implementation.
   Existing clerk self-approval denial is useful, but not proof of the new automation-maker semantics.
   `approve` now also refuses the human on `voucher_drafts.created_by` or `correction_events.actor_id`.
@@ -144,15 +165,22 @@ Do not make paid calls, real invites, email sends or hosted changes from this ch
 - [ ] After explicit provider/model/location/retention/budget approval and account setup,
   wire the reviewed runtime transport and run opt-in synthetic live extraction. Preserve
   fail-closed startup until the approved path exists; no silent mock fallback.
+  The switch is present and off. `FINLEDGER_GEMINI_LIVE=1` plus an explicit provider, model,
+  location, project, and credential builds `GeminiHttpClient`. `ModelRouter` still refuses
+  `mock` in `staging` and `production`, and refuses `gemini` there unless that process was
+  given an `HttpGeminiTransport` whose client is `GeminiHttpClient`. No region or model
+  fallback. `evals/run_evals.py --live-synthetic-eval` stays opt-in and was not run. CI stays
+  mock-only. Do not commit the key.
 - [ ] Once Harshith supplies the approved staging runtime, run real synthetic-staff
   invite → password → login → TOTP → client list → logout. Verify AAL1 denial, stale/revoked
   cookies, idle/absolute expiry and cross-tenant denial. Fake Auth is not the hosted proof.
-- [ ] Lead full synthetic upload → scan → extract → score/map → human correction/review;
+- [x] Lead full synthetic upload → scan → extract → score/map → human correction/review;
   verify truthful queued/failed/budget/statement labels and negative/failure/recovery paths.
+  Done locally on `e589018` (`test_local_journey.py`). This is not the hosted proof.
 - [x] Update `docs/RELEASE_EVIDENCE.md` in your PR: exact commit, environment, commands,
   pass/fail/skip counts, cleanup, actual hosted changes and blockers with named owners.
   Harshith owns implementation/deployment; you own integration/QA and its evidence.
-  Local evidence for this branch is in that file. Hosted results are not in it.
+  Local evidence for `e589018` is in that file. Hosted results are not in it.
 - [x] Remove stale assignments of maker/checker review, real Auth testing and engineering
   proof work to Ryan. Ryan supplies approvals/private access and final independent acceptance.
   Already done on main by `d519e48`. This branch does not put that work back on `RYAN_WORK.md`.
