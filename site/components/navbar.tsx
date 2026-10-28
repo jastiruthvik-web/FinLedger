@@ -29,6 +29,13 @@ export function Navbar() {
   });
 
   useEffect(() => {
+    const onScroll = () => headerRef.current?.classList.toggle("is-scrolled", window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
     const nodes = links
       .map((link) => document.getElementById(link.id))
       .filter((node): node is HTMLElement => Boolean(node));
