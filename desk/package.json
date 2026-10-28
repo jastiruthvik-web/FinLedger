@@ -8,7 +8,21 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.16",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tailwindcss": "^4.1.16",
     "typescript": "^5.6.3",
     "vite": "^6.0.7"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.63.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
   }
 }

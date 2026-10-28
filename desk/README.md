@@ -1,6 +1,6 @@
 # FinLedger review desk
 
-Vite and TypeScript screens for the control service. The service still scores, maps, and approves. This app only calls `/api`.
+React, TypeScript, and Tailwind screens for the control service. The service still scores, maps, and approves. This app only calls `/api`.
 
 ## Open it locally
 

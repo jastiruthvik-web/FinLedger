@@ -81,20 +81,24 @@ def test_browser_html_uses_the_built_desk_and_star_accept_keeps_the_old_pages(tm
 
 
 def test_desk_copy_and_queue_order():
-    pages = (ROOT / "desk" / "src" / "pages.ts").read_text(encoding="utf-8")
-    shell = (ROOT / "desk" / "src" / "shell.ts").read_text(encoding="utf-8")
+    src = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "desk" / "src").rglob("*")
+        if path.suffix in {".ts", ".tsx", ".css"}
+    )
     theme = (ROOT / "desk" / "src" / "theme.ts").read_text(encoding="utf-8")
     router = (ROOT / "desk" / "src" / "router.ts").read_text(encoding="utf-8")
-    css = (ROOT / "desk" / "src" / "styles.css").read_text(encoding="utf-8")
+    css = (ROOT / "desk" / "src" / "styles.css").read_text(encoding="utf-8").lower()
     for line in ("Nothing is waiting in this queue.", "Save change", "Approve and post", "Send back",
-                 "What we read", "Voucher to post", "Source"):
-        assert line in pages
-    assert "Sign out" in shell and "Clients" in shell and "Staff" in shell
+                 "What we read", "Voucher to post", "Source", "Sign out", "Clients", "Staff"):
+        assert line in src
     assert "finledger-theme" in theme
-    assert "Control plane" not in pages and "Control plane" not in shell
+    assert "Control plane" not in src
     labels = ['label: "New"', 'label: "Needs review"', 'label: "Approved"', 'label: "Exception"', 'label: "Posted"']
     positions = [router.index(label) for label in labels]
     assert positions == sorted(positions)
-    assert "#0B3A66" in css and "#1D4E89" in css and "#0E1216" in css and "#8FB4D9" in css and "#1E3A5F" in css
+    for color in ("#0b3a66", "#1d4e89", "#0e1216", "#8fb4d9", "#1e3a5f"):
+        assert color in css
     package = json.loads((ROOT / "desk" / "package.json").read_text(encoding="utf-8"))
-    assert package.get("dependencies", {}) == {}
+    assert "react" in package["dependencies"]
+    assert "tailwindcss" in package["devDependencies"]
