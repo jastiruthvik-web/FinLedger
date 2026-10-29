@@ -15,11 +15,11 @@ class Settings:
     provider: str = "mock"
     per_bill_token_cap: int = 20000
     kill_switch_enabled: bool = True
-    model_extract: str = "gemini-1.5-flash"
-    model_extract_vision: str = "gemini-1.5-pro"
-    model_risk_llm: str = "gemini-1.5-flash"
-    model_map: str = "gemini-1.5-pro"
-    model_summary: str = "gemini-1.5-flash"
+    model_extract: str = "gemini-3.5-flash-lite"
+    model_extract_vision: str = "gemini-3.5-flash-lite"
+    model_risk_llm: str = "gemini-3.5-flash-lite"
+    model_map: str = "gemini-3.5-flash-lite"
+    model_summary: str = "gemini-3.5-flash-lite"
     gemini_location: str = ""
 
     @classmethod
@@ -28,11 +28,11 @@ class Settings:
             provider=os.getenv("FINLEDGER_LLM_PROVIDER", "mock").strip().lower(),
             per_bill_token_cap=int(os.getenv("FINLEDGER_PER_BILL_TOKEN_CAP", "20000")),
             kill_switch_enabled=os.getenv("FINLEDGER_LLM_KILL_SWITCH", "true").lower() not in {"0", "false", "off"},
-            model_extract=os.getenv("FINLEDGER_MODEL_EXTRACT", "gemini-1.5-flash"),
-            model_extract_vision=os.getenv("FINLEDGER_MODEL_EXTRACT_VISION", "gemini-1.5-pro"),
-            model_risk_llm=os.getenv("FINLEDGER_MODEL_RISK", "gemini-1.5-flash"),
-            model_map=os.getenv("FINLEDGER_MODEL_MAP", "gemini-1.5-pro"),
-            model_summary=os.getenv("FINLEDGER_MODEL_SUMMARY", "gemini-1.5-flash"),
+            model_extract=os.getenv("FINLEDGER_MODEL_EXTRACT", "gemini-3.5-flash-lite"),
+            model_extract_vision=os.getenv("FINLEDGER_MODEL_EXTRACT_VISION", "gemini-3.5-flash-lite"),
+            model_risk_llm=os.getenv("FINLEDGER_MODEL_RISK", "gemini-3.5-flash-lite"),
+            model_map=os.getenv("FINLEDGER_MODEL_MAP", "gemini-3.5-flash-lite"),
+            model_summary=os.getenv("FINLEDGER_MODEL_SUMMARY", "gemini-3.5-flash-lite"),
             gemini_location=os.getenv("FINLEDGER_GEMINI_LOCATION", "").strip(),
         )
 
