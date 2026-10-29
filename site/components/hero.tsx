@@ -1,10 +1,22 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
-import { motion, useMotionValue, useSpring } from "framer-motion";
+import { motion, useScroll, useSpring, useTransform } from "framer-motion";
 import { heroPointer } from "@/components/hero-pointer";
 import { Magnetic } from "@/components/magnetic";
+
+const EXIT_START = 0.08;
+const EXIT_END = 0.72;
+const EXIT_RISE = -48;
+
+function heroExit(progress: number) {
+  if (!Number.isFinite(progress) || progress <= EXIT_START) return 0;
+  if (progress >= EXIT_END) return 1;
+  const t = (progress - EXIT_START) / (EXIT_END - EXIT_START);
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
 
 const HeroScene = dynamic(() => import("@/components/hero-scene"), {
   ssr: false,
@@ -18,6 +30,28 @@ const lines = [
 ];
 
 export function Hero() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const reduceRef = useRef(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  reduceRef.current = reduceMotion;
+
+  useLayoutEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => {
+      reduceRef.current = query.matches;
+      setReduceMotion(query.matches);
+    };
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end start"],
+  });
+  const opacity = useTransform(scrollYProgress, (progress) => (reduceRef.current ? 1 : 1 - heroExit(progress)));
+  const y = useTransform(scrollYProgress, (progress) => (reduceRef.current ? 0 : Math.round(heroExit(progress) * EXIT_RISE)));
   const tiltX = useSpring(0, { stiffness: 48, damping: 18, mass: 0.7 });
   const tiltY = useSpring(0, { stiffness: 48, damping: 18, mass: 0.7 });
 
@@ -40,10 +74,11 @@ export function Hero() {
   }
 
   return (
-    <section id="top" className="hero" onMouseMove={onMove} onMouseLeave={onLeave}>
+    <section id="top" ref={sectionRef} className="hero" onMouseMove={onMove} onMouseLeave={onLeave}>
       <HeroScene />
       <div className="hero-scrim" />
-      <div className="wrap hero-grid">
+      {/* Fade the grid, not the headline, so typed characters are not reset. */}
+      <motion.div className="wrap hero-grid" style={{ opacity, y }}>
         <div className="hero-copy">
           <p className="kicker hero-fade d1">Accounts payable · India · TallyPrime first</p>
           <h1 className="h-display">
@@ -121,7 +156,7 @@ export function Hero() {
             </article>
           </motion.div>
         </div>
-      </div>
+      </motion.div>
     </section>
   );
 }

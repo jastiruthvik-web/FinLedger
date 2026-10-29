@@ -578,6 +578,7 @@ p { text-wrap: pretty; }
   }
   .hero-line span,
   .hero-fade,
+  .hero-grid,
   .instrument,
   .live-dot,
   .spark-trace,
