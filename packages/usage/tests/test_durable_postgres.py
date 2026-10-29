@@ -131,7 +131,9 @@ def test_restart_persists_chunks_and_usage(ai_owner_dsn, ai_app_dsn):
     with psycopg.connect(ai_app_dsn, row_factory=dict_row) as conn2:
         with tenant(conn2, client_id):
             chunks = PostgresIndexer(conn2).get_namespace_chunks(client_id)
-            assert len(chunks) == 1
+            by_id = {chunk["chunk_id"]: chunk for chunk in chunks}
+            assert by_id["memory:1"]["content"] == "vendor gstin memory"
+            assert sum(ref.startswith("library:") for ref in by_id) == 18
             usage_count = conn2.execute(
                 "select count(*) from llm_usage_rows where client_id = %s::uuid", (client_id,)
             ).fetchone()["count"]
@@ -159,7 +161,8 @@ def test_cross_tenant_denial(ai_owner_dsn, ai_app_dsn):
         )
     with psycopg.connect(ai_app_dsn) as conn:
         with tenant(conn, client_b):
-            assert PostgresIndexer(conn).get_namespace_chunks(client_b) == []
+            rows = PostgresIndexer(conn).get_namespace_chunks(client_b)
+            assert all(row["content"] != "secret-a" and row["chunk_id"] != "memory:1" for row in rows)
             count = conn.execute("select count(*) from llm_usage_rows").fetchone()["count"]
             assert count == 0
         with pytest.raises(psycopg.Error, match="unknown_reservation"):

@@ -62,7 +62,9 @@ def app_dsn(owner_dsn):
     migrate(owner_dsn)
     with psycopg.connect(owner_dsn, autocommit=True) as c:
         c.execute("drop role if exists fl_control")
-        c.execute(f"create role fl_control login password '{APP_PASSWORD}' in role finledger_app")
+        c.execute(
+            f"create role fl_control login password '{APP_PASSWORD}' in role finledger_app, finledger_worker_map"
+        )
     info = conninfo_to_dict(owner_dsn); info.update(user="fl_control", password=APP_PASSWORD)
     return make_conninfo(**info)
 

@@ -215,6 +215,9 @@ class ControlService:
             self.conn.execute("update posting_attempts set result=%s,erp_id=%s,error=%s,completed_at=now() where id=%s",
                               ("posted" if ok else "failed",erp_id,error,row["id"]))
             self._event(client_id,document_id,row["status"],new,"erp_posted" if ok else "erp_failed",metadata={"erp_id":erp_id,"error":error})
+            if ok and new == "posted":
+                from finledger_platform.client_index import index_posted_document
+                index_posted_document(self.conn, client_id, document_id, erp_id)
             return {"status":new}
 
     def post_job(self, client_id, document_id):

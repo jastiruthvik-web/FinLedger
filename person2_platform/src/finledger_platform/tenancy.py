@@ -83,9 +83,22 @@ def create_client(conn: psycopg.Connection, name: str, *, erp_type: str = "tally
     policy = {k: v for k, v in (policy or {}).items() if k in POLICY_FIELDS}
     cols = ["firm_id", "name", "erp_type", "gstins", "public_token", "inbound_slug", *policy]
     vals = [name.strip(), erp_type, gstins, new_public_token(), (inbound_slug or slugify(name)).lower(), *policy.values()]
-    return conn.execute(
+    row = conn.execute(
         f"insert into clients ({', '.join(cols)}) values (app_firm_id(), {', '.join(['%s'] * len(vals))}) returning *",
         vals).fetchone()
+    # firm() sets app.firm_id only. rag_chunks RLS needs app.client_id, so the copy runs after the id exists.
+    _seed_library(conn, row["id"])
+    return row
+
+
+def _seed_library(conn: psycopg.Connection, client_id) -> None:
+    from rag.library import seed_client_library
+    from rag.postgres_indexer import PostgresIndexer
+
+    from .db import tenant
+
+    with tenant(conn, client_id):
+        seed_client_library(PostgresIndexer(conn), str(client_id))
 
 
 def update_policy(conn: psycopg.Connection, client_id: UUID | str, policy: dict[str, Any]) -> dict:

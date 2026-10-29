@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from usage.providers.bounds import require_positive_finite, require_positive_int
-from usage.providers.gemini import GEMINI_OUTPUT_TOKEN_ALLOWANCE
+from usage.providers.gemini import gemini_output_allowance
 from usage.providers.transport import TransportError, TransportResponse
 
 # Location, model and project are path segments. Reject anything that could change the host or path.
@@ -140,7 +140,7 @@ def _request_body(purpose: str, payload: dict[str, Any]) -> bytes:
     return json.dumps(
         {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"maxOutputTokens": GEMINI_OUTPUT_TOKEN_ALLOWANCE},
+            "generationConfig": {"maxOutputTokens": gemini_output_allowance(purpose)},
         },
         separators=(",", ":"),
     ).encode("utf-8")

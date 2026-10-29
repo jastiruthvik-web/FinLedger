@@ -10,6 +10,7 @@ Outcomes per job:
     ok                                  -> document 'extracted' + workflow event by the firm's automation
                                            maker + score job carrying the CanonicalInvoice, in one transaction
 
+Extract does not read ledgers or rag_chunks. The map worker is the call that retrieves.
 Before the model call, token holds left by an earlier attempt whose lease expired are marked 'expired' (013).
 The model call runs outside any database transaction. Settlement re-checks the lease inside the same
 transaction as the status change, so a worker whose lease expired cannot land a late result.

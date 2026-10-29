@@ -48,6 +48,5 @@ class Retriever:
             scored_chunks.append((score, ranked))
             
         scored_chunks.sort(key=lambda x: (-x[0], x[1]["chunk_id"]))
-        
-        # Return top_k
-        return [c for score, c in scored_chunks[:top_k]]
+        # A shared hint with nothing in common would otherwise occupy every slot.
+        return [c for score, c in scored_chunks if score > 0][:top_k]
