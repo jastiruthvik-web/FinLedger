@@ -17,7 +17,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setTheme(next);
     document.documentElement.style.colorScheme = next;
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", next === "light" ? "#efece4" : "#07080c");
+    if (meta) meta.setAttribute("content", next === "light" ? "#e7f1fb" : "#020a1e");
   }, []);
 
   function toggle() {
@@ -32,7 +32,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       /* private mode */
     }
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", next === "light" ? "#efece4" : "#07080c");
+    if (meta) meta.setAttribute("content", next === "light" ? "#e7f1fb" : "#020a1e");
   }
 
   return (

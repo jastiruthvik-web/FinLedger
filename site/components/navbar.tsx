@@ -85,7 +85,7 @@ export function Navbar() {
         <motion.div className="nav-progress" style={{ scaleX }} aria-hidden="true" />
         <div className="nav-bar wrap">
           <a href="#top" aria-label="FinLedger, back to top">
-            <Wordmark />
+            <Wordmark typed />
           </a>
           <nav className="nav-links" aria-label="Primary">
             {links.map((link) => (

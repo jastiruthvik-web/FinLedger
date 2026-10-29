@@ -143,8 +143,8 @@ function BankScene() {
         <strong className="mono">60,180.00</strong>
       </div>
       <svg viewBox="0 0 120 48" aria-hidden="true">
-        <path d="M4 24 H116" stroke="#e0c39a" strokeWidth="1.4" fill="none" opacity={linked ? 1 : 0.35} />
-        <circle cx="116" cy="24" r="3" fill="#8ee7d4" opacity={linked ? 1 : 0.25} />
+        <path d="M4 24 H116" stroke="#7eb6ff" strokeWidth="1.4" fill="none" opacity={linked ? 1 : 0.35} />
+        <circle cx="116" cy="24" r="3" fill="#9aa2ff" opacity={linked ? 1 : 0.25} />
       </svg>
       <div>
         <p className="scene-kicker">Open bill</p>

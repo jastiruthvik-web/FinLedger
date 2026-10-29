@@ -6,6 +6,7 @@ import { ArrowUpRight } from "lucide-react";
 import { motion, useScroll, useSpring, useTransform } from "framer-motion";
 import { heroPointer } from "@/components/hero-pointer";
 import { Magnetic } from "@/components/magnetic";
+import { TypedText } from "@/components/typed-text";
 
 const EXIT_START = 0.08;
 const EXIT_END = 0.72;
@@ -82,14 +83,15 @@ export function Hero() {
         <div className="hero-copy">
           <p className="kicker hero-fade d1">Accounts payable · India · TallyPrime first</p>
           <h1 className="h-display">
-            <span className="hero-line">
-              <span>Sign the</span>
+            <span className="sr-only">Sign the voucher. Not the guess.</span>
+            <span className="hero-line is-typed" aria-hidden="true">
+              <TypedText segment="sign" text="Sign the" />
             </span>
-            <span className="hero-line">
-              <span>voucher.</span>
+            <span className="hero-line is-typed" aria-hidden="true">
+              <TypedText segment="voucher" text="voucher." />
             </span>
-            <span className="hero-line">
-              <span className="display">Not the guess.</span>
+            <span className="hero-line is-typed" aria-hidden="true">
+              <TypedText segment="guess" text="Not the guess." className="display" />
             </span>
           </h1>
           <p className="lede hero-fade d2">

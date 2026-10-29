@@ -24,7 +24,7 @@ const plex = IBM_Plex_Mono({
   display: "swap",
 });
 
-const themeBoot = `(function(){try{var t=localStorage.getItem("finledger-theme");var theme=t==="light"||t==="dark"?t:"dark";var root=document.documentElement;root.setAttribute("data-theme",theme);root.style.colorScheme=theme;var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",theme==="light"?"#efece4":"#07080c");}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;
+const themeBoot = `(function(){try{var t=localStorage.getItem("finledger-theme");var theme=t==="light"||t==="dark"?t:"dark";var root=document.documentElement;root.setAttribute("data-theme",theme);root.style.colorScheme=theme;var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",theme==="light"?"#e7f1fb":"#020a1e");}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;
 
 export const metadata: Metadata = {
   title: "FinLedger — The accounts desk for Indian CA firms",
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#07080c",
+  themeColor: "#020a1e",
   width: "device-width",
   initialScale: 1,
 };
