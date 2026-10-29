@@ -1,0 +1,133 @@
+[
+  {
+    "ref": "library:doc:purchase_invoice",
+    "chunk_type": "hard_rule",
+    "content": "Purchase invoice. Voucher type purchase. Bill-wise new ref is the invoice number.",
+    "metadata": {"scope": "library", "doc_type": "purchase_invoice", "voucher_type": "purchase"}
+  },
+  {
+    "ref": "library:doc:debit_note",
+    "chunk_type": "hard_rule",
+    "content": "Debit note. Voucher type debit note. Bill-wise new ref is the debit note number.",
+    "metadata": {"scope": "library", "doc_type": "debit_note", "voucher_type": "debit_note"}
+  },
+  {
+    "ref": "library:doc:credit_note",
+    "chunk_type": "hard_rule",
+    "content": "Credit note. Voucher type credit note. Bill-wise new ref is the credit note number.",
+    "metadata": {"scope": "library", "doc_type": "credit_note", "voucher_type": "credit_note"}
+  },
+  {
+    "ref": "library:gst:intra",
+    "chunk_type": "hard_rule",
+    "content": "Same state: when the vendor state equals the client GSTIN state, use CGST and SGST input ledgers. Intra-state is not a tax rate.",
+    "metadata": {"scope": "library", "gst_split": "cgst_sgst"}
+  },
+  {
+    "ref": "library:gst:inter",
+    "chunk_type": "hard_rule",
+    "content": "Different state: use the IGST input ledger. Inter-state is not a tax rate.",
+    "metadata": {"scope": "library", "gst_split": "igst"}
+  },
+  {
+    "ref": "library:gst:rate:0",
+    "chunk_type": "hard_rule",
+    "content": "GST 0%. Rate only. Intra versus inter is a separate rule.",
+    "metadata": {"scope": "library", "gst_rate": 0, "gst_split": "rate_only"}
+  },
+  {
+    "ref": "library:gst:rate:5",
+    "chunk_type": "hard_rule",
+    "content": "GST 5%. Rate only. Intra versus inter is a separate rule.",
+    "metadata": {"scope": "library", "gst_rate": 5, "gst_split": "rate_only"}
+  },
+  {
+    "ref": "library:gst:rate:12",
+    "chunk_type": "hard_rule",
+    "content": "GST 12%. Rate only. Intra versus inter is a separate rule.",
+    "metadata": {"scope": "library", "gst_rate": 12, "gst_split": "rate_only"}
+  },
+  {
+    "ref": "library:gst:rate:18",
+    "chunk_type": "hard_rule",
+    "content": "GST 18%. Rate only. Intra versus inter is a separate rule.",
+    "metadata": {"scope": "library", "gst_rate": 18, "gst_split": "rate_only"}
+  },
+  {
+    "ref": "library:gst:rate:28",
+    "chunk_type": "hard_rule",
+    "content": "GST 28%. Rate only. Intra versus inter is a separate rule.",
+    "metadata": {"scope": "library", "gst_rate": 28, "gst_split": "rate_only"}
+  },
+  {
+    "ref": "library:sac:9982",
+    "chunk_type": "hard_rule",
+    "content": "SAC 9982. Legal and accounting advisory. GST 18%. Expense hint: Professional Fees. TDS hint: 194J when the firm's tds_sections include 194J. Matches the 194J golden.",
+    "metadata": {
+      "scope": "library",
+      "hsn": "9982",
+      "doc_type": "purchase_invoice",
+      "gst_rate": 18,
+      "gst_split": "rate_only",
+      "tds_section": "194J",
+      "ledger_hint": "Professional Fees"
+    }
+  },
+  {
+    "ref": "library:sac:9983",
+    "chunk_type": "hard_rule",
+    "content": "SAC 9983. Other professional, technical and business services. GST 18%. Expense hint: Professional Fees. TDS hint: 194J when the firm's tds_sections include 194J.",
+    "metadata": {
+      "scope": "library",
+      "hsn": "9983",
+      "doc_type": "purchase_invoice",
+      "gst_rate": 18,
+      "gst_split": "rate_only",
+      "tds_section": "194J",
+      "ledger_hint": "Professional Fees"
+    }
+  },
+  {
+    "ref": "library:sac:9987",
+    "chunk_type": "hard_rule",
+    "content": "SAC 9987. Maintenance and repair. GST 18%. Expense hint: Repairs and Maintenance. Matches the intra-state golden (HSN 9987).",
+    "metadata": {
+      "scope": "library",
+      "hsn": "9987",
+      "doc_type": "purchase_invoice",
+      "gst_rate": 18,
+      "gst_split": "rate_only",
+      "ledger_hint": "Repairs and Maintenance"
+    }
+  },
+  {
+    "ref": "library:hsn:8471",
+    "chunk_type": "hard_rule",
+    "content": "HSN 8471. Computers. Expense hint: Purchases. Matches the fixture laptop line.",
+    "metadata": {"scope": "library", "hsn": "8471", "doc_type": "purchase_invoice", "ledger_hint": "Purchases"}
+  },
+  {
+    "ref": "library:hsn:8528",
+    "chunk_type": "hard_rule",
+    "content": "HSN 8528. Monitors. Expense hint: Purchases. Matches the fixture monitor line.",
+    "metadata": {"scope": "library", "hsn": "8528", "doc_type": "purchase_invoice", "ledger_hint": "Purchases"}
+  },
+  {
+    "ref": "library:hsn:7208",
+    "chunk_type": "hard_rule",
+    "content": "HSN 7208. Flat-rolled iron or steel. Expense hint: Purchase — raw material. Matches the platform coil fixture.",
+    "metadata": {"scope": "library", "hsn": "7208", "doc_type": "purchase_invoice", "ledger_hint": "Purchase — raw material"}
+  },
+  {
+    "ref": "library:tds:194c",
+    "chunk_type": "hard_rule",
+    "content": "TDS section 194C. Contractor. Hint ledger: TDS payable 194C.",
+    "metadata": {"scope": "library", "tds_section": "194C", "ledger_hint": "TDS payable 194C"}
+  },
+  {
+    "ref": "library:tds:194i",
+    "chunk_type": "hard_rule",
+    "content": "TDS section 194I. Rent. Hint ledger: TDS payable 194I.",
+    "metadata": {"scope": "library", "tds_section": "194I", "ledger_hint": "TDS payable 194I"}
+  }
+]

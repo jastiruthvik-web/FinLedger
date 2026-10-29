@@ -13,13 +13,13 @@ def test_hard_isolation():
     
     retriever = Retriever(indexer)
     
-    # Query for Client A
-    results_a = retriever.retrieve("clientA", "", "", [], "", "", "")
+    # Unmatched rows score 0 and are not returned. A positive query still cannot cross clients.
+    assert retriever.retrieve("clientA", "", "", [], "", "", "") == []
+    results_a = retriever.retrieve("clientA", "", "Client A", [], "", "", "")
     assert len(results_a) == 1
     assert results_a[0]["content"] == "Client A Ledger"
-    
-    # Query for Client B
-    results_b = retriever.retrieve("clientB", "", "", [], "", "", "")
+
+    results_b = retriever.retrieve("clientB", "", "Client B", [], "", "", "")
     assert len(results_b) == 1
     assert results_b[0]["content"] == "Client B Vendor"
     

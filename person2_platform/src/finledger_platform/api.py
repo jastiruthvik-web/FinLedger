@@ -3,7 +3,8 @@
 Public doors      GET/POST /i/{token}             unique upload link (vendors)
                   POST     /inbound/email          raw MIME from the MX provider, HMAC-signed
                   GET      /files/{signed}         signed downloads (local store only)
-Staff (Bearer)    /clients...                      workspace, policy, doors, documents list, signed raw URL, CSV
+Staff (Bearer)    /clients...                      workspace, policy, doors, documents list, signed raw URL, CSV,
+                                           retrieval CSV (ledgers, vendors, posted history)
 Agent (Bearer)    /agent/...                       Person 4 site agent: masters snapshot, open bills, mapping
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import email_in, intake, tenancy, web
+from . import email_in, intake, retrieval_import, tenancy, web
 from .config import Settings
 from .db import firm, tenant
 from .store import LocalStore
@@ -407,6 +408,23 @@ def create_app(settings: Settings, pool, store) -> FastAPI:
         with tenant(conn, client_id):
             received = [intake.store_document(conn, store, client_id, "csv", p, meta) for p in parts]
         return {"received": received}
+
+    @app.post("/clients/{client_id}/retrieval-csv", status_code=201)
+    async def retrieval_csv(client_id: UUID, kind: Literal["ledgers", "vendors", "posted_history"] = Form(...),
+                            file: UploadFile = File(...), staff: Staff = Depends(staff_dep),
+                            conn: psycopg.Connection = Depends(conn_dep)):
+        """Staff books for one client the caller can already open. The public vendor link does not accept this."""
+        roles_for(conn, staff, client_id)
+        cap = min(retrieval_import.max_bytes(kind), settings.max_upload_bytes)
+        data = await file.read(cap + 1)
+        if len(data) > cap:
+            raise HTTPException(413, "retrieval file too large")
+        try:
+            rows = retrieval_import.parse_csv(kind, data)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise HTTPException(422, f"bad CSV: {exc}") from None
+        with tenant(conn, client_id):
+            return retrieval_import.store_and_index(conn, store, client_id, kind, data, rows)
 
     @app.post("/clients/{client_id}/erp/pair", status_code=201)
     def pair(client_id: UUID, body: PairIn, staff: Staff = Depends(staff_dep), conn: psycopg.Connection = Depends(conn_dep)):

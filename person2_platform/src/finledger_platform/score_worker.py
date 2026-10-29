@@ -5,7 +5,8 @@ Outcomes per job:
     payload names another tenant/doc    -> document 'exception' (score_payload_rejected), scorer never called
     invoice rejected by the scorer      -> document 'exception' (canonical_invoice_rejected)
     store/DB/other errors               -> job retries with backoff, then 'dead' (requeue_dead_job replays it)
-    ok                                  -> document 'scored' with its risk assessment, written by Person 3
+    ok                                  -> document 'scored' with its risk assessment, written by Person 3,
+                                           and a map job for that document (no ledgers on the extract path)
 
 The maker is resolved from the database (automation_maker_id), never trusted from the payload. Scoring and
 finish_job share one tenant transaction, so a worker whose lease expired cannot land a result. Risk and review
@@ -21,7 +22,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from .db import tenant
-from .queue import claim, finish
+from .queue import claim, enqueue, finish
 
 log = logging.getLogger("finledger.score")
 
@@ -84,6 +85,9 @@ def process_score(conn: psycopg.Connection, score: ScoreFn, job: dict) -> str:
                 except ScoreRejected:
                     _exception(conn, client_id, doc_id, maker, INVOICE_REJECTED)
                     outcome = "exception"
+        if outcome == "scored":
+            enqueue(conn, "map", client_id, doc_id,
+                    {"document_id": doc_id, "client_id": client_id, "maker_id": str(maker)})
         if outcome == "dead":
             state = finish(conn, job["id"], job["claim_token"], ok=False, error="document row missing", permanent=True)
         else:

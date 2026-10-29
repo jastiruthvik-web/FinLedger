@@ -191,6 +191,20 @@ def test_output_over_the_allowance_is_reconciled_at_the_larger_actual():
     assert json.loads(http.calls[0])["generationConfig"]["maxOutputTokens"] == 256
 
 
+def test_map_missing_usage_reserves_the_larger_output_allowance():
+    from usage.providers.gemini import GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+
+    http = _ScriptedHttp([(200, _body("{}", None))])
+    kill = KillSwitch(limit=50_000)
+    response = _http_provider(http, kill, max_retries=0).complete(
+        "map", "gemini-1.5-pro", "c1", "d1", {"invoice": {"total": 1}}
+    )
+    assert response.tokens_out == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    assert response.tokens_out > 256
+    assert json.loads(http.calls[0])["generationConfig"]["maxOutputTokens"] == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    assert kill.usage("c1", "d1") == response.tokens_in + response.tokens_out
+
+
 def test_image_reservation_uses_fixture_allowance_not_raw_bytes():
     from usage.providers import gemini as gemini_mod
 

@@ -300,6 +300,16 @@ def test_request_sends_output_allowance_as_max_output_tokens():
     assert b"page_image_bytes" not in http.calls[0]["body"]
 
 
+def test_map_output_allowance_is_above_the_extract_cap():
+    from usage.providers.gemini import GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE, GEMINI_OUTPUT_TOKEN_ALLOWANCE
+
+    assert GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE > GEMINI_OUTPUT_TOKEN_ALLOWANCE
+    http = FakeHttp([(200, _ok_body())])
+    _transport(http).generate(model=MODEL, location=LOCATION, purpose="map", payload={"invoice": {"total": 1}})
+    body = json.loads(http.calls[0]["body"])
+    assert body["generationConfig"]["maxOutputTokens"] == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+
+
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, False])
 def test_transport_rejects_nonfinite_or_boolean_timeout(timeout):
     with pytest.raises(ValueError):

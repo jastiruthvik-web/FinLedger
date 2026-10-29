@@ -1,4 +1,4 @@
-"""finledger-platform migrate | create-firm | serve | worker | extract-worker | score-worker | outbox-worker | isolation-check | s3-smoke"""
+"""finledger-platform migrate | create-firm | serve | worker | extract-worker | score-worker | map-worker | outbox-worker | isolation-check | s3-smoke"""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("worker", help="run the ingest worker")
     sub.add_parser("extract-worker", help="run the extract worker (provider settings come from Person 1's router)")
     sub.add_parser("score-worker", help="run the score worker (risk scoring comes from Person 3's control service)")
+    sub.add_parser("map-worker", help="run the map worker (retrieval and draft submission for one client at a time)")
     mail = sub.add_parser("outbox-worker", help="deliver one client's queued email replies")
     mail.add_argument("--client-id", required=True, type=UUID)
     sub.add_parser("isolation-check", help="rollback-only two-tenant RLS proof (owner DSN; writes nothing)")
@@ -81,6 +82,12 @@ def main(argv: list[str] | None = None) -> None:
 
         s = Settings()
         run_forever(make_pool(s.database_url, min_size=1, max_size=2), default_score())
+    elif args.cmd == "map-worker":
+        from .db import make_pool
+        from .map_worker import default_map, run_forever
+
+        s = Settings()
+        run_forever(make_pool(s.database_url, min_size=1, max_size=2), default_map)
     elif args.cmd == "outbox-worker":
         from .db import make_pool
         from .outbox_worker import ResendSender, run_forever

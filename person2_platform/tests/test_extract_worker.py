@@ -54,6 +54,7 @@ def test_success_settles_status_event_and_score_job_atomically(world, client, co
     fake = Recorder()
     assert run_once(conn, store, fake) == "extracted"
     assert fake.calls[0]["document_class"] == "invoice" and "Grand Total" in fake.calls[0]["markdown"]
+    assert "chunks" not in fake.calls[0]
     assert doc_row(conn, world, doc_id)["status"] == "extracted"
     maker = maker_id(owner, world.firm1)
     [score] = jobs(conn, world.a["id"], "score")
