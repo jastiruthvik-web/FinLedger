@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+
+@custom-variant dark (&:where([data-theme="night"], [data-theme="night"] *));
+
+/* Brand anchors: #0B3A66 #1D4E89 #0E1216 #8FB4D9 #1E3A5F */
+:root {
+  color-scheme: light;
+  --background: #f4f6f8;
+  --foreground: #0b3a66;
+  --card: #ffffff;
+  --card-foreground: #0b3a66;
+  --primary: #0b3a66;
+  --primary-foreground: #ffffff;
+  --secondary: #e7eef6;
+  --secondary-foreground: #0b3a66;
+  --muted: #eef2f6;
+  --muted-foreground: #4d6278;
+  --accent: #e5f2f1;
+  --accent-foreground: #1a5f68;
+  --border: #e3e8ef;
+  --input: #d5dee8;
+  --ring: #1d4e89;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b3a66;
+  --sidebar-accent: #eef3f8;
+  --sidebar-border: #e3e8ef;
+  --radius: 0.75rem;
+  --shadow: 0 1px 2px rgba(11, 58, 102, 0.05), 0 18px 40px rgba(11, 58, 102, 0.06);
+}
+
+[data-theme="night"] {
+  color-scheme: dark;
+  --background: #0e1216;
+  --foreground: #9aabbc;
+  --card: #1c2530;
+  --card-foreground: #c5d0db;
+  --primary: #1e3a5f;
+  --primary-foreground: #d7e2ec;
+  --secondary: #24303c;
+  --secondary-foreground: #b7c4d1;
+  --muted: #1a232d;
+  --muted-foreground: #8b9dad;
+  --accent: #1a3336;
+  --accent-foreground: #9ec4be;
+  --border: #314052;
+  --input: #314052;
+  --ring: #8fb4d9;
+  --sidebar: #161d26;
+  --sidebar-foreground: #b7c4d1;
+  --sidebar-accent: #222c38;
+  --sidebar-border: #314052;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  html, body, #root { min-height: 100%; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  button, input, select { font: inherit; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  ::selection { background: #1d4e89; color: #ffffff; }
+  [data-theme="night"] ::selection { background: #1e3a5f; color: #8fb4d9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

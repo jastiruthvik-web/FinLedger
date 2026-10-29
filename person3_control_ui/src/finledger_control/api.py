@@ -8,11 +8,13 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from finledger_platform.browser_sessions import MIN_PASSWORD_CHARS, SessionDenied, StaffSession
 from finledger_platform.db import firm
 from finledger_platform.staff_invites import InviteConflict, InviteDenied, InviteInvalid, InviteUnavailable
+from .desk_api import register_desk_api
+from .desk_shell import desk_document
 from .service import Conflict, ControlService, Forbidden, NotFound
 from .web import (render_accept_invite, render_form_error, render_home, render_inbox, render_login, render_mfa,
                   render_review, render_staff_invite)
@@ -22,8 +24,11 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
     app=FastAPI(title="FinLedger Control & Review", version="0.1.0")
 
     @app.exception_handler(RequestValidationError)
-    async def invalid_form(_request: Request, _exc: RequestValidationError):
+    async def invalid_form(request: Request, _exc: RequestValidationError):
         # Validation details echo submitted fields, including passwords. Show a fixed message instead.
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "This request is incomplete or invalid. Nothing was saved."},
+                                status_code=422, headers={"Cache-Control": "no-store"})
         return HTMLResponse(render_form_error(), status_code=422)
 
     @app.middleware("http")
@@ -96,6 +101,12 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         def home(request:Request,who=Depends(user)):
             if who["aal"] != "aal2":
                 raise HTTPException(303,headers={"Location":"/mfa"})
+            shell=desk_document(request)
+            if shell is not None:
+                token=request.cookies.get("fl_login_csrf") or secrets.token_urlsafe(32)
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             with pool.connection() as conn, firm(conn,who["firm_id"]):
                 if who["firm_admin"]:
                     clients=conn.execute("select id,name from clients order by name").fetchall()
@@ -112,6 +123,11 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         @app.get("/login",response_class=HTMLResponse)
         def login_page(request:Request):
             token=secrets.token_urlsafe(32)
+            shell=desk_document(request)
+            if shell is not None:
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             response=HTMLResponse(render_login(token),headers={"Cache-Control":"no-store"})
             response.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
                                 samesite="strict",path="/")
@@ -143,6 +159,12 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
 
         @app.get("/mfa",response_class=HTMLResponse)
         def mfa_page(request:Request,who=Depends(user)):
+            shell=desk_document(request)
+            if shell is not None:
+                token=request.cookies.get("fl_login_csrf") or secrets.token_urlsafe(32)
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             cookie=request.cookies.get(session_cookie_name(request))
             try:
                 with pool.connection() as conn: factors=browser_sessions.mfa_factors(conn,cookie)
@@ -318,5 +340,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
             try: ControlService(conn).reject(client_id,document_id,who["user_id"],note,resubmit=resubmit,expected_revision=revision)
             except (NotFound,Forbidden,Conflict) as exc: raise HTTPException(problem(exc),str(exc))
         return RedirectResponse(f"/clients/{client_id}/review?queue=exception",303)
+    register_desk_api(app, pool=pool, source_url=source_url, browser_sessions=browser_sessions,
+                      staff_invitations=staff_invitations, secure_browser=secure_browser,
+                      session_cookie_name=session_cookie_name, verify_form_csrf=verify_form_csrf, user=user)
     return app
 

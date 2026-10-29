@@ -56,6 +56,29 @@ uv run finledger-control --port 8770
 
 Person 2 serves signed `/files/{token}` URLs. For S3, set `FINLEDGER_STORE=s3` and `FINLEDGER_S3_BUCKET`. Staff requests use Person 2 bearer tokens. In browser deployment, the reverse proxy/SSO layer must inject the bearer credential for page and form requests; tokens must never appear in URLs.
 
+## Review desk
+
+The reviewer screens live in the Vite app at `../desk`. This service still scores, maps, and approves. The desk calls `/api` and does not redo that work. The vendor upload page is unchanged.
+
+With this API already listening on port 8770:
+
+```text
+cd ../desk
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:5173 . The dev server proxies `/api` to http://127.0.0.1:8770 .
+
+To have `finledger-control` serve the desk, build it and restart the API, then open http://127.0.0.1:8770 in a browser:
+
+```text
+cd ../desk
+npm run build
+```
+
+A browser navigation (`Accept: text/html`) for `/`, `/login`, `/mfa`, `/staff`, `/clients/{id}`, and `/clients/{id}/invoices/{documentId}` uses `desk/dist` when that build exists. Clients that do not ask for HTML, including the API tests, still receive the existing pages.
+
 ## Tests
 
 ```powershell
