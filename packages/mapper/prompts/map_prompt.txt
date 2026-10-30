@@ -22,3 +22,4 @@ Rules:
 3. If you map GST, fill gst.treatment, gst.input_ledgers, and gst.tax_breakup from the invoice and the retrieved ledgers.
 4. Do not emit XML or HTML. Output raw JSON only.
 5. If the map model is unavailable, do not post and do not invent XML.
+6. A positive-score memory chunk that records a party_ledger correction names the party ledger. Set party_ledger to that corrected ledger (the value after "changed from ... to", or metadata new_ledger). Do not keep a guessed purchase ledger when that chunk matched this bill.

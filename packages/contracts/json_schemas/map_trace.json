@@ -37,6 +37,22 @@
         {"type": "null"}
       ],
       "title": "Cost Usd"
+    },
+    "party_ledger_chunk_id": {
+      "anyOf": [
+        {"type": "string"},
+        {"type": "null"}
+      ],
+      "default": null,
+      "title": "Party Ledger Chunk Id"
+    },
+    "party_ledger_from_memory": {
+      "anyOf": [
+        {"type": "string"},
+        {"type": "null"}
+      ],
+      "default": null,
+      "title": "Party Ledger From Memory"
     }
   },
   "required": [

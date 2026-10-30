@@ -101,6 +101,8 @@ def _submit(conn, client_id, doc_id, maker, result) -> None:
         (client_id, doc_id, status, status, maker, Jsonb({
             "map_trace_id": result.trace.map_trace_id,
             "retrieved_chunk_ids": list(result.trace.retrieved_chunk_ids),
+            "party_ledger_chunk_id": result.trace.party_ledger_chunk_id,
+            "party_ledger_from_memory": result.trace.party_ledger_from_memory,
         })),
     )
 
