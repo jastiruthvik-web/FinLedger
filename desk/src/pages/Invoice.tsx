@@ -6,6 +6,7 @@ import { bandText, rupees, safeSource, shown } from "@/format";
 import { PageHeader } from "@/pages/Placeholder";
 import { queueHref } from "@/router";
 import type { InvoiceResponse } from "@/types";
+import { partyLedgerName, voucherRows } from "@/voucherView";
 
 const CLOSED = new Set(["scheduled", "paid", "posted", "reconciled", "closed"]);
 
@@ -99,9 +100,8 @@ export function InvoicePage({
   const risk = detail.risk || {};
   const conf = invoice.confidences || {};
   const source = safeSource(detail.source_url);
-  const lines = (draft.lines || [])
-    .map((line) => `${line.ledger || "Unmapped"} — ${rupees(line.amount)}`)
-    .join("; ");
+  const partyLedger = partyLedgerName(draft);
+  const rows = voucherRows(draft.lines);
   const editable = !CLOSED.has(detail.status);
   const canApprove = page.roles.includes("approver") || page.roles.includes("firm_admin");
   const back = queueHref(clientId, "needs_review");
@@ -150,9 +150,35 @@ export function InvoicePage({
                 {mark.check || "control"}: {mark.note || ""}
               </p>
             ))}
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Party ledger</h3>
+                <p className="mt-1 text-sm font-medium">{shown(partyLedger)}</p>
+              </div>
+              <table className="w-full border-collapse text-sm" aria-label="Voucher lines">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                    <th className="py-1.5 font-medium">Ledger</th>
+                    <th className="py-1.5 font-medium">Side</th>
+                    <th className="py-1.5 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="py-2 text-muted-foreground">No voucher lines</td>
+                    </tr>
+                  ) : rows.map((row, index) => (
+                    <tr key={`${row.ledger}-${index}`} className="border-b border-border last:border-0">
+                      <td className="py-1.5">{row.ledger}</td>
+                      <td className="py-1.5">{row.side}</td>
+                      <td className="py-1.5 text-right">{rupees(row.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <dl className="divide-y divide-border">
-              <Field label="Party ledger" value={shown(draft.party_ledger)} />
-              <Field label="Voucher lines" value={lines || "—"} />
               <Field label="GST treatment" value={shown(draft.gst?.treatment)} />
               <Field label="TDS" value={draft.tds?.applicable ? "Applicable" : "Not applicable"} />
               <Field label="Bill reference" value={shown(draft.bill_wise?.ref)} />
