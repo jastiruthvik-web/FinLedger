@@ -18,6 +18,7 @@ from PIL import Image, ImageOps
 
 from . import files
 from .queue import PermanentError
+from .statements import read_table, table_markdown
 
 MIN_PAGE_TEXT_CHARS = 16   # below this a page counts as scanned
 RENDER_DPI = 200
@@ -113,8 +114,18 @@ def prepare(data: bytes, mime: str, page_cap: int = 30) -> Prepared:
     if mime in (files.JPEG, files.PNG):
         return prep_image(data)
     if mime in (files.XLSX, files.CSV):
+        markdown = ""
         try:
-            return Prepared(to_markdown(data, mime), None)
-        except Exception as e:
-            raise PermanentError(f"unreadable spreadsheet: {type(e).__name__}") from e
+            markdown = to_markdown(data, mime)
+        except Exception:
+            markdown = ""
+        if not markdown.strip():
+            try:
+                rows = read_table(data, mime)
+            except (ValueError, OSError) as exc:
+                raise PermanentError(f"unreadable spreadsheet: {type(exc).__name__}") from exc
+            markdown = table_markdown(rows)
+        if not markdown.strip():
+            raise PermanentError("unreadable spreadsheet: empty")
+        return Prepared(markdown, None)
     raise PermanentError(f"no prep for {mime}")

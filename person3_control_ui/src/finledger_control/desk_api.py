@@ -22,6 +22,7 @@ from finledger_platform.staff_invites import (
 )
 
 from .desk_shell import desk_dist, desk_document, mfa_blocks, queue_name
+from .reconciliation import load_reconciliation
 from .service import Conflict, ControlService, Forbidden, NotFound
 from .web import processing_label
 
@@ -355,6 +356,14 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             "items": [queue_item(row) for row in items],
         })
 
+    @app.get("/api/clients/{client_id}/reconciliation")
+    def reconciliation(client_id: UUID, who=Depends(api_user)):
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            body = load_reconciliation(conn, client_id)
+            name = client_name(conn, client_id)
+        return api_json({"client": {"id": client_id, "name": name}, **body})
+
     @app.get("/api/clients/{client_id}/invoices/{document_id}")
     def invoice(request: Request, client_id: UUID, document_id: UUID, who=Depends(api_user)):
         with pool.connection() as conn:
@@ -364,6 +373,7 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             except (NotFound, Forbidden, Conflict) as exc:
                 raise HTTPException(problem(exc), str(exc)) from None
             name = client_name(conn, client_id)
+            compared = ControlService(conn).bill_match(client_id, document_id)
         detail = dict(detail)
         detail["state_label"] = processing_label({"status": detail.get("status")})
         token = csrf_value(request)
@@ -372,6 +382,8 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             "roles": sorted(roles),
             "csrf_token": token,
             "invoice": detail,
+            "match": compared["match"],
+            "posting": compared["posting"],
         }, request=request, csrf=token)
 
     @app.post("/api/clients/{client_id}/invoices/{document_id}/edit")

@@ -59,7 +59,7 @@ export interface InvoiceDetail {
   risk?: { score?: number | string | null; band?: string | null; marks?: Mark[] };
   draft?: {
     party_ledger?: string | null;
-    lines?: { ledger?: string | null; amount?: string | number | null }[];
+    lines?: { ledger?: string | null; amount?: string | number | null; is_debit?: boolean | null }[];
     gst?: { treatment?: string | null };
     tds?: { applicable?: boolean };
     bill_wise?: { ref?: string | null };
@@ -67,11 +67,43 @@ export interface InvoiceDetail {
   };
 }
 
+import type { PostingBlock, ThreeWayMatch } from "./threeWay";
+
+export type { PostingBlock, ThreeWayMatch };
+
 export interface InvoiceResponse {
   client: ClientRow;
   roles: string[];
   csrf_token: string;
   invoice: InvoiceDetail;
+  match?: ThreeWayMatch;
+  posting?: PostingBlock;
+}
+
+export interface BankLine {
+  date: string;
+  narration: string;
+  reference: string;
+  debit: string | null;
+  credit: string | null;
+  status: "matched" | "unmatched";
+  invoice_no: string | null;
+  document_id: string | null;
+}
+
+export interface OpenBillMatch {
+  document_id: string;
+  invoice_no: string;
+  amount: string | null;
+  vendor_name: string;
+  workflow_status: string;
+  status: "matched" | "unmatched";
+}
+
+export interface ReconciliationResponse {
+  client: ClientRow;
+  lines: BankLine[];
+  bills: OpenBillMatch[];
 }
 
 export interface PageContext {

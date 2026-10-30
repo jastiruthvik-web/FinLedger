@@ -88,6 +88,11 @@ def test_statement_is_an_exception_without_a_model_call(world, client, conn, sto
     assert fake.calls == []
     assert dict(doc_row(conn, world, doc_id)) == {"status": "exception", "status_reason": "statement_not_extracted"}
     assert jobs(conn, world.a["id"], "score") == []
+    with tenant(conn, world.a["id"]):
+        meta = conn.execute("select source_meta from documents where id = %s", (doc_id,)).fetchone()["source_meta"]
+    assert meta["bank_lines"] == [{
+        "date": "2026-09-01", "narration": "", "reference": "INV-1", "debit": "5000.00", "credit": None,
+    }]
 
 
 @pytest.mark.parametrize("field,value", [

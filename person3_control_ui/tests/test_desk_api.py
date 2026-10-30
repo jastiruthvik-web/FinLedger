@@ -1,6 +1,9 @@
 """The desk JSON API calls ControlService. It does not score or approve on its own."""
+import hashlib
+
 import psycopg
 from fastapi.testclient import TestClient
+from psycopg.types.json import Jsonb
 
 from finledger_control.api import create_app
 from finledger_control.service import ControlService
@@ -38,7 +41,10 @@ def test_desk_queue_save_and_send_back(pool, conn, world, document):
     invoice = clerk.get(f"/api/clients/{client_id}/invoices/{document}", headers=clerk_headers)
     assert invoice.status_code == 200
     token = invoice.json()["csrf_token"]
-    assert "party_ledger" in invoice.json()["invoice"]["draft"]
+    mapped = invoice.json()["invoice"]["draft"]
+    assert mapped["party_ledger"] == "Shree Ganesh Metals"
+    assert mapped["lines"][0]["ledger"] == "Purchase - Steel"
+    assert mapped["lines"][0]["amount"] in (11800, 11800.0, "11800", "11800.0", "11800.00")
     saved = clerk.post(
         f"/api/clients/{client_id}/invoices/{document}/edit",
         headers=clerk_headers,
@@ -175,3 +181,41 @@ def test_desk_admin_invite_uses_the_staff_service(pool, owner_dsn, world):
     with psycopg.connect(owner_dsn) as db:
         row = db.execute("select firm_admin from users where email = %s", ("new.clerk@sharma.test",)).fetchone()
     assert row[0] is False
+
+
+def test_reconciliation_matches_invoice_and_amount_and_leaves_the_rest_unmatched(pool, conn, world, document):
+    service = ControlService(conn)
+    client_id = world["client"]["id"]
+    service.score(client_id, document,
+                  canonical(document, confidences={"invoice_no": .2, "date": .2, "gstin": .99, "total": .99}),
+                  world["clerk"])
+    service.submit_draft(client_id, document, draft(document), world["clerk"])
+    statement_id = "22222222-2222-2222-2222-222222222222"
+    bank_lines = [
+        {"date": "2026-10-06", "narration": "NEFT INV-42", "reference": "", "debit": "11800.00", "credit": None},
+        {"date": "2026-10-05", "narration": "NEFT salary", "reference": "", "debit": None, "credit": "250000.00"},
+    ]
+    with tenant(conn, client_id):
+        conn.execute(
+            """insert into documents(id, client_id, channel, object_path, original_filename, content_hash,
+                   mime, size_bytes, status, virus_ok, document_class, source_meta)
+               values (%s,%s,'portal',%s,'october-bank-statement.xlsx',%s,
+                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 100,
+                   'exception', true, 'statement', %s)""",
+            (statement_id, client_id, f"{client_id}/2026/10/{statement_id}/raw.xlsx",
+             hashlib.sha256(b"statement").hexdigest(), Jsonb({"bank_lines": bank_lines, "uploaded_by": "october-set"})),
+        )
+    approver = TestClient(create_app(pool, source_url=lambda path, name: "/files/signed"))
+    headers = {"Authorization": f"Bearer {world['approver_token']}", **SAME_ORIGIN}
+    response = approver.get(f"/api/clients/{client_id}/reconciliation", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["client"]["name"] == "Acme Steel"
+    by_narration = {line["narration"]: line for line in body["lines"]}
+    assert by_narration["NEFT INV-42"]["status"] == "matched"
+    assert by_narration["NEFT INV-42"]["invoice_no"] == "INV-42"
+    assert by_narration["NEFT INV-42"]["document_id"] == document
+    assert by_narration["NEFT salary"]["status"] == "unmatched"
+    assert by_narration["NEFT salary"]["document_id"] is None
+    bills = {bill["invoice_no"]: bill["status"] for bill in body["bills"]}
+    assert bills["INV-42"] == "matched"
