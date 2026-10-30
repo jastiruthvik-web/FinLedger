@@ -16,7 +16,7 @@ from usage.model_router import ModelRouter, Settings
 from usage.postgres_kill_switch import PostgresKillSwitch
 from usage.postgres_usage_writer import PostgresUsageWriter
 from usage.provider_errors import ProviderTransientError
-from usage.providers.gemini import GeminiProvider, GeminiSettings, GeminiTariff
+from usage.providers.gemini import GeminiProvider, GeminiSettings, GeminiTariff, gemini_output_allowance
 from usage.providers.http_transport import HttpGeminiTransport
 from usage.providers.transport import FakeGeminiTransport, TransportError, TransportResponse
 from testing.pg_harness import ai_app_dsn, ai_owner_dsn
@@ -264,11 +264,11 @@ def test_unknown_usage_reconciles_at_the_reservation_not_zero(ai_owner_dsn, ai_a
         )
     assert response.text == "kept"
     assert response.usage_known is False
-    assert response.tokens_in > 0 and response.tokens_out == 256
+    assert response.tokens_in > 0 and response.tokens_out == gemini_output_allowance("extract")
     rows = _bill_rows(ai_app_dsn, client_id)
     assert len(rows) == 1
     assert rows[0]["reservation_id"] == response.reservation_id
-    assert rows[0]["tokens_in"] == response.tokens_in and rows[0]["tokens_out"] == 256
+    assert rows[0]["tokens_in"] == response.tokens_in and rows[0]["tokens_out"] == gemini_output_allowance("extract")
     assert rows[0]["state"] == "reconciled"
     assert float(rows[0]["cost_usd"]) > 0
 

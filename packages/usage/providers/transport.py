@@ -18,6 +18,8 @@ class TransportResponse:
     tokens_out: int
     latency_ms: int = 0
     usage_known: bool = True
+    cost_usd: float | None = None
+    cost_known: bool = False
 
 
 class GeminiTransport(Protocol):
@@ -53,3 +55,13 @@ class FakeGeminiTransport:
         if isinstance(item, str):
             return TransportResponse(item, 10, 10, 1)
         raise TypeError(f"unsupported fake response: {type(item)!r}")
+
+
+class OpenRouterTransport(Protocol):
+    def generate(
+        self,
+        *,
+        model: str,
+        purpose: str,
+        payload: dict[str, Any],
+    ) -> TransportResponse: ...

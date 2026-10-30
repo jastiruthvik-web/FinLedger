@@ -1,6 +1,6 @@
 import { ArrowLeftRight, Bell, Building2, ChevronDown, LayoutDashboard, LogOut, Menu, Moon, PanelLeft, Search, Sun, Users } from "lucide-react";
 import { useEffect, useId, useState, type MouseEvent, type ReactNode } from "react";
-import { api } from "@/api";
+import { api, needsMfa } from "@/api";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -34,11 +34,11 @@ export function Shell({
   useEffect(() => { setMobileOpen(false); }, [route]);
 
   useEffect(() => {
-    if (session.aal !== "aal2") return;
+    if (needsMfa(session)) return;
     let live = true;
     api.clients().then((data) => { if (live) setClients(data.clients); }).catch(() => { if (live) setClients([]); });
     return () => { live = false; };
-  }, [session.aal, session.user_id]);
+  }, [session.aal, session.mfa_required, session.user_id]);
 
   function follow(event: MouseEvent, url: string) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;

@@ -97,4 +97,10 @@ export const api = {
   staff: () => request<{ clients: ClientRow[]; csrf_token: string }>("/api/staff"),
   invite: (body: { email: string; name: string; firm_admin: boolean; memberships: { client_id: string; role: string }[] }) =>
     post<{ notice: string }>("/api/staff/invite", body),
+  acceptInvite: (tokenHash: string, password: string, passwordConfirm: string) =>
+    post<{ ok: boolean }>("/api/auth/accept", { token_hash: tokenHash, password, password_confirm: passwordConfirm }),
 };
+
+export function needsMfa(session: { aal: string; mfa_required?: boolean }): boolean {
+  return session.mfa_required !== false && session.aal !== "aal2";
+}

@@ -44,7 +44,11 @@ class ExtractWorker:
         
         with open(self.prompt_path, "r") as f:
             prompt_template = f.read()
-            
+        prompt_template = (
+            f"{prompt_template}\n\ndocument_id: {document_id}\n"
+            "Set document_id to that value. invoice_date must stay the printed date.\n"
+        )
+
         response_text = self._call_llm(model, prompt_template, markdown)
         response = getattr(self, "_provider_response", None)
         log_provider_usage(

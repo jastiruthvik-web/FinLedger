@@ -7,7 +7,7 @@ from usage.kill_switch import KillSwitch
 from usage.model_router import ModelRouter, Settings
 from usage.provider import ProviderResponse, _tokens
 from usage.provider_errors import ProviderTransientError
-from usage.providers.gemini import GeminiProvider, GeminiSettings
+from usage.providers.gemini import GeminiProvider, GeminiSettings, gemini_output_allowance
 from usage.providers.http_transport import HttpGeminiTransport
 from usage.providers.transport import FakeGeminiTransport, TransportError, TransportResponse
 from usage.usage_writer import UsageWriter
@@ -158,7 +158,7 @@ def test_reasoning_body_reconciles_full_chargeable_usage_and_fixture_cost():
     assert response.cost_usd == pytest.approx((3 * 2 + 1004 * 4) / 1_000_000)
     assert response.cost_usd > 0
     request = json.loads(http.calls[0])
-    assert request["generationConfig"]["maxOutputTokens"] == 256
+    assert request["generationConfig"]["maxOutputTokens"] == gemini_output_allowance("extract")
 
 
 def test_missing_usage_reconciles_the_hold_instead_of_releasing_zero():
@@ -169,7 +169,7 @@ def test_missing_usage_reconciles_the_hold_instead_of_releasing_zero():
     )
     assert response.text == "kept"
     assert getattr(response, "usage_known", True) is False
-    assert response.tokens_out == 256
+    assert response.tokens_out == gemini_output_allowance("extract")
     assert response.tokens_in == _tokens(json.dumps({"markdown": "x"}, sort_keys=True))
     assert kill.usage("c1", "d1") == response.tokens_in + response.tokens_out
     assert kill.usage("c1", "d1") > 0
@@ -188,7 +188,7 @@ def test_output_over_the_allowance_is_reconciled_at_the_larger_actual():
     )
     assert response.tokens_out == 400
     assert kill.usage("c1", "d1") == 403
-    assert json.loads(http.calls[0])["generationConfig"]["maxOutputTokens"] == 256
+    assert json.loads(http.calls[0])["generationConfig"]["maxOutputTokens"] == gemini_output_allowance("extract")
 
 
 def test_map_missing_usage_reserves_the_larger_output_allowance():
@@ -209,9 +209,9 @@ def test_image_reservation_uses_fixture_allowance_not_raw_bytes():
     from usage.providers import gemini as gemini_mod
 
     image_allowance = getattr(gemini_mod, "GEMINI_IMAGE_INPUT_TOKEN_ALLOWANCE", None)
-    output_allowance = getattr(gemini_mod, "GEMINI_OUTPUT_TOKEN_ALLOWANCE", None)
+    output_allowance = gemini_mod.gemini_output_allowance("extract_vision")
     assert image_allowance == 1024
-    assert output_allowance == 256
+    assert output_allowance == gemini_mod.GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
 
     def reserved_for(blob: bytes) -> int:
         kill = KillSwitch(limit=500_000)
@@ -249,7 +249,7 @@ def test_retry_with_a_body_settles_that_attempt_and_holds_the_next():
     response = _http_provider(http, kill, max_retries=1).complete(
         "extract", "gemini-1.5-flash", "c1", "d1", {"markdown": "x"}
     )
-    hold = _tokens(json.dumps({"markdown": "x"}, sort_keys=True)) + 256
+    hold = _tokens(json.dumps({"markdown": "x"}, sort_keys=True)) + gemini_output_allowance("extract")
     assert response.tokens_in == 3 and response.tokens_out == 4
     assert kill.usage("c1", "d1") == hold + 7
     assert len(http.calls) == 2

@@ -57,7 +57,7 @@ def settle_provider_usage(
 
 
 def persisted_cost_usd(response: object | None) -> float | None:
-    """Cost to store. Mock keeps its zero default. An unpriced Gemini success is not stored as 0."""
+    """Cost to store. Mock keeps its zero default. An unpriced provider success is not stored as 0."""
     if response is None:
         return 0.0
     if getattr(response, "cost_computed", True) is False:
