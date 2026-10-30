@@ -30,3 +30,10 @@ def queue_name(value: str | None) -> str:
     if value in QUEUES:
         return value
     return "needs_review"
+
+
+def mfa_blocks(who) -> bool:
+    """Password sign-in is enough when the account has no verified TOTP factor."""
+    if not isinstance(who, dict) or who.get("mfa_required", True) is False:
+        return False
+    return "aal" in who and who["aal"] != "aal2"

@@ -78,6 +78,16 @@ def test_browser_html_uses_the_built_desk_and_star_accept_keeps_the_old_pages(tm
     invoice = client.get(f"/clients/{client_id}/invoices/{document_id}", headers={"Accept": "*/*"}, follow_redirects=False)
     assert invoice.status_code == 302
     assert invoice.headers["location"] == f"/clients/{client_id}/review/{document_id}"
+    browser = client.get(f"/clients/{client_id}/review/{document_id}", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert browser.status_code == 302
+    assert browser.headers["location"] == f"/clients/{client_id}/invoices/{document_id}"
+    stayed = client.get(browser.headers["location"], headers={"Accept": "text/html"})
+    assert "Desk shell" in stayed.text
+    staff_browser = client.get("/admin/staff", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert staff_browser.status_code == 302 and staff_browser.headers["location"] == "/staff"
+    queue = client.get(f"/clients/{client_id}/review?queue=needs_review", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert queue.status_code == 302
+    assert queue.headers["location"] == f"/clients/{client_id}?queue=needs_review"
 
 
 def test_desk_copy_and_queue_order():

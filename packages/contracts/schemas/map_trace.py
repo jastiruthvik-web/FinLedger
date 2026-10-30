@@ -11,6 +11,9 @@ class MapTrace(BaseModel):
     tokens_in: int
     tokens_out: int
     cost_usd: float | None
+    # Set when a retrieved party-ledger correction replaced the model's party ledger.
+    party_ledger_chunk_id: str | None = None
+    party_ledger_from_memory: str | None = None
 
 
 class MapResult(BaseModel):

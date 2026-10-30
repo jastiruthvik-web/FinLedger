@@ -28,6 +28,8 @@ class StaffSession:
     firm_id: UUID
     firm_admin: bool
     aal: str
+    # False when this password session has no verified TOTP factor. Desk access does not demand a code.
+    mfa_required: bool = True
 
 
 class BrowserSessions:
@@ -47,10 +49,10 @@ class BrowserSessions:
         except UnicodeEncodeError:
             raise SessionDenied("session unavailable") from None
 
-    def _seal(self, access: str, refresh: str, local_aal: str = "aal1") -> bytes:
+    def _seal(self, access: str, refresh: str, local_aal: str = "aal1", mfa_required: bool = True) -> bytes:
         # Assurance belongs to this opaque cookie, not just the upstream Auth session.
-        return self._cipher.encrypt(json.dumps({"access": access, "refresh": refresh,
-                                               "local_aal": local_aal}).encode())
+        bundle = {"access": access, "refresh": refresh, "local_aal": local_aal, "mfa_required": bool(mfa_required)}
+        return self._cipher.encrypt(json.dumps(bundle).encode())
 
     def _open(self, value: bytes) -> dict:
         try:
@@ -60,6 +62,11 @@ class BrowserSessions:
             # Legacy bundles have no proof of a local cookie-rekey; require MFA again.
             data.setdefault("local_aal", "aal1")
             if data["local_aal"] not in ("aal1", "aal2"):
+                raise ValueError("bad credential bundle")
+            # Missing flag is the old bundle: keep demanding a code. Only an explicit false skips it.
+            if "mfa_required" not in data:
+                data["mfa_required"] = True
+            if not isinstance(data["mfa_required"], bool):
                 raise ValueError("bad credential bundle")
             return data
         except (InvalidToken, ValueError, KeyError, TypeError):
@@ -86,10 +93,20 @@ class BrowserSessions:
                 pass
             raise
         cookie = secrets.token_urlsafe(32)
+        mfa_required = self._password_session_needs_totp(tokens.access_token)
         conn.execute("select finledger_private.staff_session_start(%s, %s, %s, %s)",
                      (self._hash(cookie), staff["user_id"],
-                      self._seal(tokens.access_token, tokens.refresh_token), verified.expires_at))
+                      self._seal(tokens.access_token, tokens.refresh_token, "aal1", mfa_required),
+                      verified.expires_at))
         return cookie
+
+    def _password_session_needs_totp(self, access_token: str) -> bool:
+        """A project with MFA turned off has no verified factor. Do not demand a code that cannot exist."""
+        try:
+            factors = self._gateway.verified_totp_factors(access_token)
+        except AuthUnavailable:
+            return True
+        return bool(factors)
 
     def accept_invite(self, conn, token_hash: str, password: str) -> None:
         """First login: redeem the emailed invite, require an explicitly linked user, set a password, end the
@@ -124,7 +141,7 @@ class BrowserSessions:
                 verified = self._verifier.verify_staff(tokens.access_token)
                 if not conn.execute("select finledger_private.staff_session_rotate(%s, %s, %s, %s) as ok",
                                     (digest, row["version"], self._seal(tokens.access_token, tokens.refresh_token,
-                                                                       bundle["local_aal"]),
+                                                                       bundle["local_aal"], bundle["mfa_required"]),
                                      verified.expires_at)).fetchone()["ok"]:
                     raise SessionDenied("session changed; retry")
             else:
@@ -133,7 +150,8 @@ class BrowserSessions:
             if staff["user_id"] != row["user_id"]:
                 raise SessionDenied("session identity changed")
             aal = "aal2" if bundle["local_aal"] == "aal2" and verified.aal == "aal2" else "aal1"
-            return StaffSession(staff["user_id"], staff["firm_id"], staff["firm_admin"], aal)
+            return StaffSession(staff["user_id"], staff["firm_id"], staff["firm_admin"], aal,
+                                mfa_required=bundle["mfa_required"])
         except (AuthUnavailable, InvalidStaffToken):
             raise SessionDenied("session unavailable") from None
 

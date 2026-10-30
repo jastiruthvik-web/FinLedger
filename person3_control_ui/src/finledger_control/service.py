@@ -257,6 +257,7 @@ class ControlService:
         with self._tx(client_id):
             rows = self.conn.execute("""select d.id as document_id,d.original_filename,d.status,d.status_reason,
                  d.document_class,c.payload->>'invoice_no' as invoice_no,c.payload->'vendor'->>'name' as vendor_name,
+                 c.payload->>'invoice_date' as invoice_date,
                  (c.payload->>'total')::numeric as total,r.score,r.band,ej.extract_state
               from documents d left join canonical_invoices c on c.document_id=d.id
               left join lateral(select score,band from risk_assessments where document_id=d.id order by id desc limit 1) r on true

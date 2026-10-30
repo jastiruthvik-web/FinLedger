@@ -13,7 +13,12 @@ from extract.failures import INVALID_MODEL_OUTPUT, ExtractFailure
 from usage.kill_switch import KillSwitch
 from usage.model_router import ModelRouter, Settings
 from usage.provider import persisted_cost_usd
-from usage.providers.gemini import GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE, GEMINI_OUTPUT_TOKEN_ALLOWANCE, gemini_output_allowance
+from usage.providers.gemini import (
+    GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE,
+    GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE,
+    GEMINI_OUTPUT_TOKEN_ALLOWANCE,
+    gemini_output_allowance,
+)
 from usage.providers.openrouter import OPENROUTER_DEFAULT_MODEL, OpenRouterProvider, OpenRouterSettings
 from usage.providers.openrouter_transport import (
     OPENROUTER_CHAT_COMPLETIONS_URL,
@@ -112,6 +117,7 @@ def test_request_is_chat_completions_json_with_reasoning_off():
     assert OPENROUTER_CHAT_COMPLETIONS_URL == "https://openrouter.ai/api/v1/chat/completions"
     assert REASONING_OFF == {"effort": "none"}
     assert GEMINI_OUTPUT_TOKEN_ALLOWANCE == 256
+    assert GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE == 8192
     assert GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE == 4096
     http = FakeHttp([(200, _chat('{"invoice_no":"INV-1"}', _usage(3, 4, 0.01)))])
     response = _transport(http).generate(
@@ -129,7 +135,7 @@ def test_request_is_chat_completions_json_with_reasoning_off():
     assert call["timeout"] == 5
     body = json.loads(call["body"])
     assert body["model"] == MODEL
-    assert body["max_tokens"] == 256
+    assert body["max_tokens"] == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
     assert body["response_format"] == {"type": "json_object"}
     assert body["reasoning"] == {"effort": "none"}
     assert "generationConfig" not in body and "inline_data" not in call["body"].decode()
@@ -142,7 +148,7 @@ def test_request_is_chat_completions_json_with_reasoning_off():
 
 @pytest.mark.parametrize("purpose", ["extract", "extract_vision", "risk_llm", "summary", "map"])
 def test_max_tokens_follows_the_purpose_allowance(purpose):
-    expected = 4096 if purpose == "map" else 256
+    expected = gemini_output_allowance(purpose)
     assert gemini_output_allowance(purpose) == expected
     http = FakeHttp([(200, _chat("{}", _usage(1, 1)))])
     _transport(http).generate(model=MODEL, purpose=purpose, payload={"markdown": "x"})
@@ -158,7 +164,7 @@ def test_images_are_image_url_data_urls_and_omitted_from_the_text_json():
         payload={"markdown": "", "page_image_bytes": [blob]},
     )
     body = json.loads(http.calls[0]["body"])
-    assert body["max_tokens"] == 256
+    assert body["max_tokens"] == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
     content = body["messages"][0]["content"]
     assert content[0]["type"] == "text"
     assert "page_image_bytes" not in content[0]["text"]

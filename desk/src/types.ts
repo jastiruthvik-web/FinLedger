@@ -3,12 +3,14 @@ export interface Session {
   firm_id: string;
   firm_admin: boolean;
   aal: string;
+  mfa_required?: boolean;
   csrf_token: string;
 }
 
 export interface ClientRow {
   id: string;
   name: string;
+  gstin?: string;
 }
 
 export interface QueueItem {
@@ -16,6 +18,7 @@ export interface QueueItem {
   invoice_no: string | null;
   filename: string | null;
   vendor_name: string | null;
+  invoice_date?: string | null;
   total: string | number | null;
   band: string | null;
   score: number | string | null;
