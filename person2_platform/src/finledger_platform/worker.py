@@ -21,6 +21,7 @@ from . import files, prep, virus
 from .config import Settings
 from .db import tenant
 from .queue import PermanentError, claim, enqueue, finish
+from .statements import lines_from_statement
 from .store import object_key
 
 log = logging.getLogger("finledger.ingest")
@@ -98,6 +99,8 @@ def process_ingest(conn: psycopg.Connection, store, settings: Settings, job: dic
                             updated_at = now() where id = %s""", (_unreadable_reason(doc["mime"]), doc_id))
         return "exception"
 
+    bank_lines = lines_from_statement(data, doc["mime"]) if doc["document_class"] == "statement" else []
+
     # Objects first (idempotent overwrites), then one transaction for rows + the extract job.
     new_assets: list[tuple[str, str, int | None]] = []
     at = doc["received_at"]
@@ -122,6 +125,11 @@ def process_ingest(conn: psycopg.Connection, store, settings: Settings, job: dic
         doc = conn.execute("""update documents set virus_ok = true, page_count = %s, prepared_at = now(),
                               updated_at = now() where id = %s returning *""",
                            (prepared.page_count, doc_id)).fetchone()
+        if bank_lines:
+            conn.execute(
+                "update documents set source_meta = source_meta || %s where id = %s",
+                (Jsonb({"bank_lines": bank_lines}), doc_id),
+            )
         assets = conn.execute("select kind, path, page_no from document_assets where document_id = %s",
                               (doc_id,)).fetchall()
         enqueue(conn, "extract", client_id, doc_id, extract_payload(doc, assets))

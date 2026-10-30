@@ -1,4 +1,4 @@
-import type { ClientRow, InvoiceResponse, QueueResponse, Session } from "./types";
+import type { ClientRow, InvoiceResponse, QueueResponse, ReconciliationResponse, Session } from "./types";
 
 let csrfToken = "";
 
@@ -79,6 +79,8 @@ export const api = {
     request<QueueResponse>(`/api/clients/${encodeURIComponent(clientId)}/queue?queue=${encodeURIComponent(queue)}`),
   invoice: (clientId: string, documentId: string) =>
     request<InvoiceResponse>(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}`),
+  reconciliation: (clientId: string) =>
+    request<ReconciliationResponse>(`/api/clients/${encodeURIComponent(clientId)}/reconciliation`),
   saveChange: (clientId: string, documentId: string, revision: number, value: string) =>
     post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/edit`, {
       revision, field: "party_ledger", value,
