@@ -144,3 +144,45 @@ def test_map_trace_lists_only_this_client_and_extract_has_no_chunks(conn, pool, 
     assert second[0] == correction["ref"]
     assert "memory:b-marker" not in second
     assert set(second) <= {chunk["chunk_id"] for chunk in _chunks(conn, client_a)}
+    with tenant(conn, client_a):
+        draft_a = conn.execute(
+            "select payload from voucher_drafts where document_id = %s", (second_id,)
+        ).fetchone()["payload"]
+        trace_a = conn.execute(
+            """select metadata from workflow_events
+               where document_id = %s and action = 'map_trace' order by id desc limit 1""",
+            (second_id,),
+        ).fetchone()["metadata"]
+    if isinstance(draft_a, str):
+        draft_a = json.loads(draft_a)
+    if isinstance(trace_a, str):
+        trace_a = json.loads(trace_a)
+    assert draft_a["party_ledger"] == "Ganesh Metals - AP"
+    assert trace_a["party_ledger_from_memory"] == "Ganesh Metals - AP"
+    assert trace_a["party_ledger_chunk_id"] == correction["ref"]
+
+    doc_b = _document(conn, client_b)
+    ControlService(conn).score(client_b, doc_b, _invoice(doc_b, "INV-MAP-B"), world["clerk"])
+    with tenant(conn, client_b):
+        enqueue(conn, "map", client_b, doc_b, {"document_id": str(doc_b), "client_id": str(client_b)})
+    assert run_once(conn, default_map(conn)) == "mapped"
+    trace_b = _trace(conn, client_b, doc_b)
+    with tenant(conn, client_b):
+        draft_b = conn.execute(
+            "select payload from voucher_drafts where document_id = %s", (doc_b,)
+        ).fetchone()["payload"]
+        meta_b = conn.execute(
+            """select metadata from workflow_events
+               where document_id = %s and action = 'map_trace' order by id desc limit 1""",
+            (doc_b,),
+        ).fetchone()["metadata"]
+    if isinstance(draft_b, str):
+        draft_b = json.loads(draft_b)
+    if isinstance(meta_b, str):
+        meta_b = json.loads(meta_b)
+    assert correction["ref"] not in trace_b
+    assert "memory:a-marker" not in trace_b
+    assert draft_b["party_ledger"] == "Shree Ganesh Metals"
+    assert meta_b["party_ledger_from_memory"] is None
+    assert meta_b["party_ledger_chunk_id"] is None
+    assert set(trace_b) <= {chunk["chunk_id"] for chunk in _chunks(conn, client_b)}
