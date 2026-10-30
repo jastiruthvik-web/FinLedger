@@ -19,7 +19,7 @@ Return one JSON object and nothing else. It must be a CanonicalInvoice. Use thes
 - cess: number.
 - round_off: number.
 - total: number. The grand total from the document.
-- line_items: array of objects with desc, hsn_sac, qty, rate, taxable, tax_rate, and tax_amount. Use these names, not description, hsn, or quantity.
+- line_items: array of objects with desc, hsn_sac, qty, rate, taxable, tax_rate, and tax_amount. Use these names, not description, hsn, or quantity. Include one object for each printed charge. Do not return an empty line_items array when the document prints a description and a taxable amount.
 - bank_upi: string or null. Do not include a phone number or a bank account.
 - confidences: object with invoice_no, date, gstin, and total. Each value is from 0.0 to 1.0.
 - raw_markdown_path: string. Use an empty string.
