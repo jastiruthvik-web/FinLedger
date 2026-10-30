@@ -7,7 +7,7 @@ import pytest
 from usage.kill_switch import KillSwitch
 from usage.model_router import ModelRouter, Settings
 from usage.provider_errors import ProviderTransientError
-from usage.providers.gemini import GeminiProvider, GeminiSettings
+from usage.providers.gemini import GeminiProvider, GeminiSettings, gemini_output_allowance
 from usage.providers.http_transport import HttpGeminiTransport, build_generate_url
 from usage.providers.transport import TransportError
 
@@ -294,20 +294,30 @@ def test_request_sends_output_allowance_as_max_output_tokens():
         payload={"markdown": "", "page_image_bytes": [blob]},
     )
     body = json.loads(http.calls[0]["body"])
-    assert body["generationConfig"]["maxOutputTokens"] == 256
+    assert body["generationConfig"]["maxOutputTokens"] == gemini_output_allowance("extract_vision")
     parts = body["contents"][0]["parts"]
     assert parts[1]["inline_data"]["data"]
     assert b"page_image_bytes" not in http.calls[0]["body"]
 
 
-def test_map_output_allowance_is_above_the_extract_cap():
-    from usage.providers.gemini import GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE, GEMINI_OUTPUT_TOKEN_ALLOWANCE
+def test_extract_allowance_fits_an_invoice_and_map_keeps_its_draft_allowance():
+    from usage.providers.gemini import (
+        GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE,
+        GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE,
+        GEMINI_OUTPUT_TOKEN_ALLOWANCE,
+    )
 
-    assert GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE > GEMINI_OUTPUT_TOKEN_ALLOWANCE
-    http = FakeHttp([(200, _ok_body())])
-    _transport(http).generate(model=MODEL, location=LOCATION, purpose="map", payload={"invoice": {"total": 1}})
+    assert GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE > GEMINI_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("extract") == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("extract_vision") == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("map") == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    http = FakeHttp([(200, _ok_body()), (200, _ok_body())])
+    _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "Date: 2026-10-05"})
     body = json.loads(http.calls[0]["body"])
-    assert body["generationConfig"]["maxOutputTokens"] == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    assert body["generationConfig"]["maxOutputTokens"] == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    _transport(http).generate(model=MODEL, location=LOCATION, purpose="map", payload={"invoice": {"total": 1}})
+    mapped = json.loads(http.calls[1]["body"])
+    assert mapped["generationConfig"]["maxOutputTokens"] == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, False])

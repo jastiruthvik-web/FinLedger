@@ -16,15 +16,19 @@ from usage.providers.transport import GeminiTransport, TransportError, Transport
 # Fixed categories only. Auth and schema failures are not retried.
 _RETRYABLE = frozenset({"timeout", "http_429", "http_5xx", "transport_unavailable"})
 
-# The output half of a Gemini reservation. The HTTP body sends the same number.
-# Extract and the other short calls stay at 256. Map emits a voucher draft; 256 cuts that JSON off.
+# The output half of a reservation. The HTTP body sends the same number.
+# Risk and summary stay short. Extract emits a CanonicalInvoice; 256 cuts that JSON off.
+# Map emits a voucher draft and keeps its own allowance.
 GEMINI_OUTPUT_TOKEN_ALLOWANCE = 256
+GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE = 8192
 GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE = 4096
 
 
 def gemini_output_allowance(purpose: str) -> int:
     if purpose == "map":
         return GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    if purpose in {"extract", "extract_vision"}:
+        return GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
     return GEMINI_OUTPUT_TOKEN_ALLOWANCE
 
 # Per-image stand-in added to the text estimate. Not Google's live image-token formula.

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from finledger_control.api import create_app
 from finledger_control.service import ControlService
+from finledger_platform.browser_sessions import StaffSession
 from finledger_platform.db import tenant
 from finledger_platform.staff_invites import StaffInvitations
 from test_invites import FakeAdmin, Sessions, admin_sessions
@@ -113,7 +114,9 @@ def test_desk_login_lists_clients_and_hides_staff_from_non_admins(pool, world):
     assert session.json()["firm_admin"] is False and session.json()["aal"] == "aal2"
     clients = approver.get("/api/clients")
     assert clients.status_code == 200
-    assert clients.json()["clients"] == [{"id": str(world["client"]["id"]), "name": "Acme Steel"}]
+    assert clients.json()["clients"] == [{
+        "id": str(world["client"]["id"]), "name": "Acme Steel", "gstin": "27AAPFU0939F1ZV",
+    }]
     assert approver.get("/api/staff").status_code == 403
     logged_out = approver.post("/api/logout", headers=SAME_ORIGIN, json={"csrf_token": session.json()["csrf_token"]})
     assert logged_out.status_code == 200
@@ -127,6 +130,17 @@ def test_desk_login_lists_clients_and_hides_staff_from_non_admins(pool, world):
     snow = unsigned.post("/api/login", headers=SAME_ORIGIN,
                          json={"email": "person@sharma.test", "password": "pw", "csrf_token": "\u2603"})
     assert snow.status_code == 403
+
+
+def test_password_session_without_totp_opens_the_desk(pool, world):
+    sessions = Sessions(world["approver"], world["client"]["firm_id"], False, "aal1")
+    sessions.who = StaffSession(world["approver"], world["client"]["firm_id"], False, "aal1", mfa_required=False)
+    client = _signed_in(pool, sessions)
+    session = client.get("/api/session")
+    assert session.status_code == 200
+    assert session.json()["aal"] == "aal1"
+    assert session.json()["mfa_required"] is False
+    assert client.get("/api/clients").status_code == 200
 
 
 def test_desk_aal1_cannot_list_clients(pool, world):

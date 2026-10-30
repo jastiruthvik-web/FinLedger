@@ -15,13 +15,13 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from finledger_platform.browser_sessions import SessionDenied, StaffSession
+from finledger_platform.browser_sessions import MIN_PASSWORD_CHARS, SessionDenied, StaffSession
 from finledger_platform.db import firm
 from finledger_platform.staff_invites import (
     InviteConflict, InviteDenied, InviteInvalid, InviteUnavailable, normalize_email,
 )
 
-from .desk_shell import desk_dist, desk_document, queue_name
+from .desk_shell import desk_dist, desk_document, mfa_blocks, queue_name
 from .service import Conflict, ControlService, Forbidden, NotFound
 from .web import processing_label
 
@@ -69,7 +69,7 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
         return secrets.token_urlsafe(32)
 
     def require_aal2(who) -> None:
-        if "aal" in who and who["aal"] != "aal2":
+        if mfa_blocks(who):
             raise HTTPException(403, detail={"mfa_required": True})
 
     def require_admin(who) -> None:
@@ -95,7 +95,8 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
                     staff = browser_sessions.resolve(conn, cookie)
             except SessionDenied:
                 raise HTTPException(401, "Sign in required") from None
-            return {"user_id": staff.user_id, "firm_id": staff.firm_id, "firm_admin": staff.firm_admin, "aal": staff.aal}
+            return {"user_id": staff.user_id, "firm_id": staff.firm_id, "firm_admin": staff.firm_admin,
+                    "aal": staff.aal, "mfa_required": staff.mfa_required}
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "Bearer token required")
         digest = hashlib.sha256(authorization[7:].encode()).digest()
@@ -138,13 +139,14 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
     def client_rows(who):
         with pool.connection() as conn, firm(conn, who["firm_id"]):
             if who["firm_admin"]:
-                rows = conn.execute("select id, name from clients order by name").fetchall()
+                rows = conn.execute("select id, name, gstins from clients order by name").fetchall()
             else:
                 rows = conn.execute(
-                    "select c.id, c.name from clients c where exists "
+                    "select c.id, c.name, c.gstins from clients c where exists "
                     "(select 1 from client_members m where m.client_id = c.id and m.user_id = %s) "
                     "order by c.name", (who["user_id"],)).fetchall()
-        return [{"id": row["id"], "name": row["name"]} for row in rows]
+        return [{"id": row["id"], "name": row["name"],
+                 "gstin": (row["gstins"] or [""])[0] if row["gstins"] else ""} for row in rows]
 
     def client_name(conn, client_id):
         with conn.transaction():
@@ -159,6 +161,7 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             "invoice_no": item.get("invoice_no"),
             "filename": item.get("original_filename"),
             "vendor_name": item.get("vendor_name"),
+            "invoice_date": item.get("invoice_date"),
             "total": item.get("total"),
             "band": item.get("band"),
             "score": item.get("score"),
@@ -200,6 +203,24 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             response = api_json({"ok": True})
             response.delete_cookie(session_cookie_name(request), path="/")
             return response
+
+        @app.post("/api/auth/accept")
+        async def accept_invite(request: Request):
+            body = await read_json(request)
+            check_csrf(request, body)
+            token_hash = need_str(body, "token_hash", 512, required=True)
+            password = need_str(body, "password", 1024, required=True)
+            confirm = need_str(body, "password_confirm", 1024, required=True)
+            if len(password) < MIN_PASSWORD_CHARS:
+                raise HTTPException(422, f"Use at least {MIN_PASSWORD_CHARS} characters.")
+            if not secrets.compare_digest(password.encode(), confirm.encode()):
+                raise HTTPException(422, "The two passwords do not match.")
+            try:
+                with pool.connection() as conn:
+                    browser_sessions.accept_invite(conn, token_hash, password)
+            except SessionDenied:
+                raise HTTPException(400, "This invitation is invalid, expired or not provisioned.")
+            return api_json({"ok": True})
 
         @app.get("/api/mfa")
         def mfa(request: Request, who=Depends(api_user)):
@@ -301,11 +322,13 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
     def session(request: Request, who=Depends(api_user)):
         token = csrf_value(request)
         aal = who["aal"] if "aal" in who else "aal2"
+        mfa_required = who["mfa_required"] if "mfa_required" in who else True
         return api_json({
             "user_id": who["user_id"],
             "firm_id": who["firm_id"],
             "firm_admin": bool(who["firm_admin"]),
             "aal": aal,
+            "mfa_required": bool(mfa_required),
             "csrf_token": token,
         }, request=request, csrf=token)
 
@@ -403,6 +426,20 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             except (NotFound, Forbidden, Conflict) as exc:
                 raise HTTPException(problem(exc), str(exc)) from None
         return api_json(result)
+
+    def desk_page(request: Request):
+        shell = desk_document(request)
+        if shell is not None:
+            return shell
+        raise HTTPException(404, "The desk is not built")
+
+    @app.get("/clients")
+    def clients_page(request: Request, _who=Depends(user)):
+        return desk_page(request)
+
+    @app.get("/transactions")
+    def transactions_page(request: Request, _who=Depends(user)):
+        return desk_page(request)
 
     @app.get("/staff")
     def staff_page(request: Request, _who=Depends(user)):

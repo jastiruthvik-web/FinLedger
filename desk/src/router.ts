@@ -20,6 +20,7 @@ export type Route =
   | { name: "queue"; clientId: string; queue: QueueKey }
   | { name: "invoice"; clientId: string; documentId: string }
   | { name: "staff" }
+  | { name: "accept" }
   | { name: "missing" };
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
@@ -37,6 +38,7 @@ export function parseRoute(path: string, search: string): Route {
   if (clean === "/clients") return { name: "clients" };
   if (clean === "/transactions") return { name: "transactions" };
   if (clean === "/staff") return { name: "staff" };
+  if (clean === "/auth/accept") return { name: "accept" };
   let match = clean.match(new RegExp(`^/clients/(${UUID})/invoices/(${UUID})$`));
   if (match) return { name: "invoice", clientId: match[1], documentId: match[2] };
   match = clean.match(new RegExp(`^/clients/(${UUID})$`));
