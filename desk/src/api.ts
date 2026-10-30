@@ -85,10 +85,11 @@ export const api = {
     post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/edit`, {
       revision, field: "party_ledger", value,
     }),
-  approveAndPost: (clientId: string, documentId: string, revision: number) =>
-    post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/approve`, {
-      revision, post: true,
-    }),
+  approve: (clientId: string, documentId: string, revision: number, postToBooks: boolean) =>
+    post<{ status: string; posting_blocked?: boolean; posting_reason?: string | null }>(
+      `/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/approve`,
+      { revision, post: postToBooks },
+    ),
   sendBack: (clientId: string, documentId: string, revision: number) =>
     post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/reject`, {
       revision, resubmit: true,

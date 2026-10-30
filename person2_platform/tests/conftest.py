@@ -27,7 +27,8 @@ from finledger_platform.store import LocalStore
 
 APP_PASSWORD = "fl_app_test_pw"
 TENANT_TABLES = "firms, users, clients, client_members, vendors, documents, document_assets, jobs, erp_links, " \
-                "mapping_table, masters_snapshots, open_bills, rag_chunks, outbox, rate_limits"
+                "mapping_table, masters_snapshots, open_bills, rag_chunks, outbox, rate_limits, " \
+                "purchase_orders, goods_receipts"
 
 
 def _pg_runner(data: Path) -> list[str]:

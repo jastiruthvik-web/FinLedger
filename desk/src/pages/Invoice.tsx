@@ -6,6 +6,7 @@ import { bandText, rupees, safeSource, shown } from "@/format";
 import { PageHeader } from "@/pages/Placeholder";
 import { queueHref } from "@/router";
 import type { InvoiceResponse } from "@/types";
+import { approveChoice, matchHeadline, matchRows } from "@/threeWay";
 import { partyLedgerName, voucherRows } from "@/voucherView";
 
 const CLOSED = new Set(["scheduled", "paid", "posted", "reconciled", "closed"]);
@@ -102,6 +103,9 @@ export function InvoicePage({
   const source = safeSource(detail.source_url);
   const partyLedger = partyLedgerName(draft);
   const rows = voucherRows(draft.lines);
+  const compared = matchRows(page.match || emptyMatch);
+  const headline = page.match ? matchHeadline(page.match) : "";
+  const choice = approveChoice(page.match, page.posting);
   const editable = !CLOSED.has(detail.status);
   const canApprove = page.roles.includes("approver") || page.roles.includes("firm_admin");
   const back = queueHref(clientId, "needs_review");
@@ -200,9 +204,16 @@ export function InvoicePage({
             )}
             {canApprove && (
               <div className="flex flex-wrap gap-2">
-                <Button disabled={busy} onClick={() => void run(() => api.approveAndPost(clientId, documentId, detail.revision), "Approved and queued to post.")}>
-                  Approve & post
-                </Button>
+                {choice === "approve_and_post" ? (
+                  <Button disabled={busy} onClick={() => void run(() => api.approve(clientId, documentId, detail.revision, true), "Approved and queued to post.")}>
+                    Approve & post
+                  </Button>
+                ) : null}
+                {choice === "approve" ? (
+                  <Button disabled={busy} onClick={() => void run(() => api.approve(clientId, documentId, detail.revision, false), page.posting?.reason ? `Approved. ${page.posting.reason}` : "Approved.")}>
+                    Approve
+                  </Button>
+                ) : null}
                 <Button variant="outline" disabled={busy} onClick={() => void run(() => api.sendBack(clientId, documentId, detail.revision), "Sent back for a correction.")}>
                   Ask vendor to resend
                 </Button>
@@ -211,6 +222,39 @@ export function InvoicePage({
           </div>
         </section>
       </div>
+      {page.match ? (
+        <section className="rounded-xl border border-border bg-card" aria-label="Three-way match">
+          <h2 className="border-b border-border px-4 py-3 text-sm font-semibold">Three-way match</h2>
+          <div className="space-y-3 p-4">
+            <p className="text-sm font-medium">{headline}</p>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                  <th className="py-1.5 font-medium">Side</th>
+                  <th className="py-1.5 text-right font-medium">Quantity</th>
+                  <th className="py-1.5 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {compared.map((row) => (
+                  <tr key={row.side} className="border-b border-border last:border-0">
+                    <td className="py-1.5">
+                      {row.side}
+                      {row.side === "Goods receipt" ? <span className="ml-2 text-muted-foreground">quantity received</span> : null}
+                      {row.reference ? <span className="ml-2 text-muted-foreground">{row.reference}</span> : null}
+                    </td>
+                    <td className="py-1.5 text-right">{row.quantity}</td>
+                    <td className="py-1.5 text-right">{row.amount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {page.posting?.blocked && page.posting.reason ? (
+              <p className="text-sm text-muted-foreground">{page.posting.reason}</p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -225,6 +269,18 @@ function Field({ label, value, extra }: { label: string; value: string; extra?: 
     </div>
   );
 }
+
+const emptyMatch = {
+  applicable: false,
+  matched: false,
+  holds_review: false,
+  match_mode: "invoice_only",
+  differences: [],
+  review_note: "",
+  purchase_order: { po_number: null, quantity: null, amount: null },
+  goods_receipt: { grn_number: null, quantity_received: null },
+  invoice: { quantity: null, amount: null },
+};
 
 function percent(value: number | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "";

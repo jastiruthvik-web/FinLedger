@@ -67,11 +67,17 @@ export interface InvoiceDetail {
   };
 }
 
+import type { PostingBlock, ThreeWayMatch } from "./threeWay";
+
+export type { PostingBlock, ThreeWayMatch };
+
 export interface InvoiceResponse {
   client: ClientRow;
   roles: string[];
   csrf_token: string;
   invoice: InvoiceDetail;
+  match?: ThreeWayMatch;
+  posting?: PostingBlock;
 }
 
 export interface BankLine {

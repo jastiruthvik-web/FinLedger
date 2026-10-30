@@ -373,6 +373,7 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             except (NotFound, Forbidden, Conflict) as exc:
                 raise HTTPException(problem(exc), str(exc)) from None
             name = client_name(conn, client_id)
+            compared = ControlService(conn).bill_match(client_id, document_id)
         detail = dict(detail)
         detail["state_label"] = processing_label({"status": detail.get("status")})
         token = csrf_value(request)
@@ -381,6 +382,8 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             "roles": sorted(roles),
             "csrf_token": token,
             "invoice": detail,
+            "match": compared["match"],
+            "posting": compared["posting"],
         }, request=request, csrf=token)
 
     @app.post("/api/clients/{client_id}/invoices/{document_id}/edit")
