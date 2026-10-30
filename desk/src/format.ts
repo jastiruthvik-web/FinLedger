@@ -5,6 +5,21 @@ const money = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 });
 
+const day = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+
+export function formatDay(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return iso;
+  return day.format(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+export function asAmount(value: unknown): number {
+  if (value === null || value === undefined || value === "") return 0;
+  const amount = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
 export function rupees(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   const amount = typeof value === "number" ? value : Number(value);

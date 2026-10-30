@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, errorMessage } from "@/api";
+import { ApiError, api, errorMessage, needsMfa } from "@/api";
 import { LoginScreen } from "@/components/LoginScreen";
 import { Shell } from "@/components/Shell";
-import { clientById } from "@/data/mock";
+import { AcceptInvite } from "@/pages/AcceptInvite";
 import { ClientsPage, ClientDetail } from "@/pages/Clients";
 import { Dashboard } from "@/pages/Dashboard";
+import { InvoicePage } from "@/pages/Invoice";
+import { MfaPage } from "@/pages/Mfa";
 import { PageHeader } from "@/pages/Placeholder";
+import { QueuePage } from "@/pages/Queue";
+import { StaffPage } from "@/pages/Staff";
 import { TransactionsPage } from "@/pages/Transactions";
 import { parseRoute, QUEUES, type Route } from "@/router";
 import type { Session } from "@/types";
@@ -22,15 +26,16 @@ function routeKey(route: Route) {
 function heading(route: Route): { title: string; description: string } {
   if (route.name === "home") return { title: "Dashboard", description: "Accounts payable across the firm." };
   if (route.name === "clients") return { title: "Clients", description: "Companies on the firm’s books." };
-  if (route.name === "client") return { title: clientById(route.clientId)?.name ?? "Client", description: "Bills and status for this client." };
+  if (route.name === "client") return { title: "Client", description: "Bills and status for this client." };
   if (route.name === "transactions") return { title: "Reconciliation", description: "Bank lines against purchase bills." };
   if (route.name === "queue") {
     const queue = QUEUES.find((item) => item.key === route.queue) ?? QUEUES[1];
     return { title: queue.label, description: queue.context };
   }
-  if (route.name === "invoice") return { title: "Invoice", description: "The bill will open here." };
+  if (route.name === "invoice") return { title: "Invoice", description: "Review the bill, then post the voucher." };
   if (route.name === "staff") return { title: "Staff", description: "Invite someone at the firm and choose the clients they can work on." };
   if (route.name === "mfa") return { title: "Two-step verification", description: "Enter the code from your authenticator app before you open a client." };
+  if (route.name === "accept") return { title: "Set your password", description: "Choose a password, then sign in." };
   return { title: "This page is not on the desk", description: "Choose a client from the sidebar." };
 }
 
@@ -55,6 +60,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (route.name === "accept") return;
     let live = true;
     const fail = (error: unknown) => {
       if (!live) return;
@@ -71,7 +77,7 @@ export function App() {
       api.session().then((next) => {
         if (!live) return;
         setSession(next);
-        go(next.aal === "aal2" ? "/" : "/mfa");
+        go(needsMfa(next) ? "/mfa" : "/");
       }).catch(fail);
       return () => { live = false; };
     }
@@ -79,8 +85,8 @@ export function App() {
       if (!live) return;
       setSession(next);
       setPhase("in");
-      if (next.aal !== "aal2" && route.name !== "mfa") go("/mfa");
-      else if (next.aal === "aal2" && route.name === "mfa") go("/");
+      if (needsMfa(next) && route.name !== "mfa") go("/mfa");
+      else if (!needsMfa(next) && route.name === "mfa") go("/");
     }).catch(fail);
     return () => { live = false; };
   }, [routeKey(route), go, route.name]);
@@ -96,6 +102,7 @@ export function App() {
     document.title = route.name === "login" ? "Sign in · FinLedger" : `${title} · FinLedger`;
   }, [route]);
 
+  if (route.name === "accept") return <AcceptInvite onDone={() => go("/login")} />;
   if (phase === "down") {
     return <div className="grid min-h-screen place-items-center bg-background px-6 text-center text-foreground"><p role="alert">{bootError}</p></div>;
   }
@@ -110,7 +117,11 @@ export function App() {
   if (route.name === "home") body = <Dashboard onNavigate={go} />;
   else if (route.name === "clients") body = <ClientsPage onNavigate={go} />;
   else if (route.name === "client") body = <ClientDetail clientId={route.clientId} onNavigate={go} />;
-  else if (route.name === "transactions") body = <TransactionsPage />;
+  else if (route.name === "transactions") body = <TransactionsPage onNavigate={go} />;
+  else if (route.name === "queue") body = <QueuePage clientId={route.clientId} queue={route.queue} onNavigate={go} />;
+  else if (route.name === "invoice") body = <InvoicePage clientId={route.clientId} documentId={route.documentId} onNavigate={go} />;
+  else if (route.name === "staff") body = <StaffPage />;
+  else if (route.name === "mfa") body = <MfaPage onVerified={() => go("/")} />;
   return (
     <Shell session={session} route={route} onNavigate={go} onSignOut={() => { void signOut(); }}>
       {body}

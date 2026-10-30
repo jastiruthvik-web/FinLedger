@@ -5,9 +5,40 @@ from usage.kill_switch import KillSwitch
 from usage.live_gemini import transport_is_explicit_live
 from usage.provider import MockProvider
 from usage.providers.gemini import GeminiProvider, GeminiSettings
-from usage.providers.transport import GeminiTransport
+from usage.providers.openrouter import (
+    OPENROUTER_DEFAULT_MODEL,
+    OpenRouterProvider,
+    OpenRouterSettings,
+    build_openrouter_transport,
+    require_openrouter_api_key,
+)
+from usage.providers.transport import GeminiTransport, OpenRouterTransport
 
 _HOSTED_BLOCKED_PROVIDERS = frozenset({"mock", "gemini"})
+_FLASH_LITE = "gemini-3.5-flash-lite"
+_PURPOSE_ENV = (
+    ("model_extract", "FINLEDGER_MODEL_EXTRACT", _FLASH_LITE),
+    ("model_extract_vision", "FINLEDGER_MODEL_EXTRACT_VISION", _FLASH_LITE),
+    ("model_risk_llm", "FINLEDGER_MODEL_RISK", _FLASH_LITE),
+    ("model_map", "FINLEDGER_MODEL_MAP", _FLASH_LITE),
+    ("model_summary", "FINLEDGER_MODEL_SUMMARY", _FLASH_LITE),
+)
+
+
+def _models_from_env(provider: str) -> dict[str, str]:
+    """OpenRouter defaults every purpose to Qwen. A set per-purpose variable still wins."""
+    shared = os.getenv("FINLEDGER_OPENROUTER_MODEL", "").strip()
+    models: dict[str, str] = {}
+    for field, env_name, gemini_default in _PURPOSE_ENV:
+        if provider == "openrouter":
+            explicit = os.getenv(env_name)
+            if isinstance(explicit, str) and explicit.strip():
+                models[field] = explicit.strip()
+            else:
+                models[field] = shared or OPENROUTER_DEFAULT_MODEL
+        else:
+            models[field] = os.getenv(env_name, gemini_default)
+    return models
 
 
 @dataclass(frozen=True)
@@ -24,16 +55,13 @@ class Settings:
 
     @classmethod
     def from_env(cls):
+        provider = os.getenv("FINLEDGER_LLM_PROVIDER", "mock").strip().lower()
         return cls(
-            provider=os.getenv("FINLEDGER_LLM_PROVIDER", "mock").strip().lower(),
+            provider=provider,
             per_bill_token_cap=int(os.getenv("FINLEDGER_PER_BILL_TOKEN_CAP", "20000")),
             kill_switch_enabled=os.getenv("FINLEDGER_LLM_KILL_SWITCH", "true").lower() not in {"0", "false", "off"},
-            model_extract=os.getenv("FINLEDGER_MODEL_EXTRACT", "gemini-3.5-flash-lite"),
-            model_extract_vision=os.getenv("FINLEDGER_MODEL_EXTRACT_VISION", "gemini-3.5-flash-lite"),
-            model_risk_llm=os.getenv("FINLEDGER_MODEL_RISK", "gemini-3.5-flash-lite"),
-            model_map=os.getenv("FINLEDGER_MODEL_MAP", "gemini-3.5-flash-lite"),
-            model_summary=os.getenv("FINLEDGER_MODEL_SUMMARY", "gemini-3.5-flash-lite"),
             gemini_location=os.getenv("FINLEDGER_GEMINI_LOCATION", "").strip(),
+            **_models_from_env(provider),
         )
 
 
@@ -45,6 +73,7 @@ class ModelRouter:
         settings: Settings | None = None,
         gemini_transport: GeminiTransport | None = None,
         kill_switch: KillSwitch | None = None,
+        openrouter_transport: OpenRouterTransport | None = None,
     ):
         self.settings = settings or Settings.from_env()
         env = os.getenv("FINLEDGER_ENV", "development").strip().lower()
@@ -59,7 +88,9 @@ class ModelRouter:
             "map": self.settings.model_map,
             "summary": self.settings.model_summary,
         }
-        # Injected switch is the worker's durable adapter. No socket client is constructed here.
+        # Injected switch is the worker's durable adapter. Gemini never builds a socket
+        # client here. OpenRouter builds its client object only in that branch; the
+        # constructor does not open a socket.
         if kill_switch is None:
             kill = KillSwitch(self.settings.per_bill_token_cap, self.settings.kill_switch_enabled)
         else:
@@ -81,6 +112,17 @@ class ModelRouter:
                     location=self.settings.gemini_location,
                 ),
                 gemini_transport,
+                kill,
+            )
+        elif self.settings.provider == "openrouter":
+            api_key = require_openrouter_api_key()
+            if openrouter_transport is None:
+                transport = build_openrouter_transport(api_key)
+            else:
+                transport = openrouter_transport
+            self.provider = OpenRouterProvider(
+                OpenRouterSettings(model=self.settings.model_extract or OPENROUTER_DEFAULT_MODEL),
+                transport,
                 kill,
             )
         else:

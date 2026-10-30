@@ -44,13 +44,19 @@ class ExtractionDispatcher:
             raise ExtractFailure(VISION_PAGE_CAP)
 
         model = self.worker.router.resolve_model("extract_vision")
+        with open(self.worker.prompt_path, "r") as handle:
+            prompt = handle.read()
+        prompt = (
+            f"{prompt}\n\ndocument_id: {document_id}\n"
+            "The invoice is in the page images. Set document_id to that value.\n"
+        )
         response = self.worker.router.provider.complete(
             "extract_vision",
             model,
             client_id,
             document_id,
             {
-                "prompt": "Extract the invoice from page images",
+                "prompt": prompt,
                 "markdown": "",
                 "page_image_bytes": image_bytes,
             },

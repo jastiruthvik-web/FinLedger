@@ -71,6 +71,23 @@ def test_sign_in_requires_explicit_subject_link_and_stores_only_ciphertext(owner
         sessions.resolve(conn, cookie)
 
 
+def test_sign_in_without_a_totp_factor_does_not_require_a_code(owner, conn, world):
+    class OpenGateway(FakeGateway):
+        def verified_totp_factors(self, token):
+            return []
+
+    verifier = FakeVerifier()
+    verifier.subject = uuid4()
+    owner.execute("update users set auth_subject = %s where id = %s", (verifier.subject, world.admin1))
+    sessions = BrowserSessions(OpenGateway(), verifier, Fernet.generate_key())
+    cookie = sessions.sign_in(conn, "admin@sharma.test", "password")
+    opened = sessions.resolve(conn, cookie)
+    assert opened.aal == "aal1" and opened.mfa_required is False
+    owner.execute("update finledger_private.staff_sessions set access_expires_at = now() - interval '1 second'")
+    refreshed = sessions.resolve(conn, cookie)
+    assert refreshed.aal == "aal1" and refreshed.mfa_required is False
+
+
 def test_refresh_rotates_tokens_without_elevating_pre_mfa_cookie(owner, conn, world):
     verifier = FakeVerifier()
     verifier.subject = uuid4()
