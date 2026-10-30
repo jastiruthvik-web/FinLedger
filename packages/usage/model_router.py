@@ -15,12 +15,13 @@ from usage.providers.openrouter import (
 from usage.providers.transport import GeminiTransport, OpenRouterTransport
 
 _HOSTED_BLOCKED_PROVIDERS = frozenset({"mock", "gemini"})
+_GEMINI_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _PURPOSE_ENV = (
-    ("model_extract", "FINLEDGER_MODEL_EXTRACT", "gemini-1.5-flash"),
-    ("model_extract_vision", "FINLEDGER_MODEL_EXTRACT_VISION", "gemini-1.5-pro"),
-    ("model_risk_llm", "FINLEDGER_MODEL_RISK", "gemini-1.5-flash"),
-    ("model_map", "FINLEDGER_MODEL_MAP", "gemini-1.5-pro"),
-    ("model_summary", "FINLEDGER_MODEL_SUMMARY", "gemini-1.5-flash"),
+    ("model_extract", "FINLEDGER_MODEL_EXTRACT", _GEMINI_DEFAULT_MODEL),
+    ("model_extract_vision", "FINLEDGER_MODEL_EXTRACT_VISION", _GEMINI_DEFAULT_MODEL),
+    ("model_risk_llm", "FINLEDGER_MODEL_RISK", _GEMINI_DEFAULT_MODEL),
+    ("model_map", "FINLEDGER_MODEL_MAP", _GEMINI_DEFAULT_MODEL),
+    ("model_summary", "FINLEDGER_MODEL_SUMMARY", _GEMINI_DEFAULT_MODEL),
 )
 
 
@@ -45,11 +46,11 @@ class Settings:
     provider: str = "mock"
     per_bill_token_cap: int = 20000
     kill_switch_enabled: bool = True
-    model_extract: str = "gemini-1.5-flash"
-    model_extract_vision: str = "gemini-1.5-pro"
-    model_risk_llm: str = "gemini-1.5-flash"
-    model_map: str = "gemini-1.5-pro"
-    model_summary: str = "gemini-1.5-flash"
+    model_extract: str = _GEMINI_DEFAULT_MODEL
+    model_extract_vision: str = _GEMINI_DEFAULT_MODEL
+    model_risk_llm: str = _GEMINI_DEFAULT_MODEL
+    model_map: str = _GEMINI_DEFAULT_MODEL
+    model_summary: str = _GEMINI_DEFAULT_MODEL
     gemini_location: str = ""
 
     @classmethod
