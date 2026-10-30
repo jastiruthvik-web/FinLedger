@@ -82,7 +82,10 @@ def test_extract_payload_has_no_chunks():
     assert set(payload) == {"prompt", "markdown"}
     assert "chunks" not in payload
     assert "chunks" not in set(_keys(payload))
-    assert payload["prompt"] == _PROMPT.read_text(encoding="utf-8")
+    prompt_file = _PROMPT.read_text(encoding="utf-8")
+    assert payload["prompt"].startswith(prompt_file)
+    assert "\ndocument_id: doc-extract\n" in payload["prompt"]
+    assert "chunks" not in payload["prompt"]
     assert GSTIN in payload["markdown"]
     assert "Vendor: Local Tech" in payload["markdown"]
     dumped = json.dumps(payload)

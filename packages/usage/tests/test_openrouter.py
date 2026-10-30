@@ -412,9 +412,12 @@ def test_openrouter_model_env_does_not_change_mock_or_gemini_defaults(monkeypatc
     settings = Settings.from_env()
     assert settings.provider == "mock"
     assert settings.model_extract == "gemini-3.5-flash-lite"
+    assert settings.model_extract_vision == "gemini-3.5-flash-lite"
     assert settings.model_map == "gemini-3.5-flash-lite"
+    assert settings.model_summary == "gemini-3.5-flash-lite"
     router = ModelRouter(settings)
     assert router.resolve_model("extract") == "gemini-3.5-flash-lite"
+    assert router.resolve_model("map") == "gemini-3.5-flash-lite"
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])
