@@ -4,6 +4,7 @@
 .env.*.local
 
 # Python and test output
+node_modules/
 .venv/
 __pycache__/
 *.py[cod]
@@ -31,4 +32,17 @@ var/
 
 # Untrusted/import staging; reviewed files are merged explicitly
 _incoming/
+
+# Next.js site
+node_modules/
+site/node_modules/
+.next/
+site/.next/
+*.tsbuildinfo
+
+# Marketing site
+node_modules/
+site/.next/
+site/out/
+*.tsbuildinfo
 

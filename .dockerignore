@@ -1,3 +1,6 @@
+node_modules
+site/.next
+site/out
 **/.venv
 **/__pycache__
 **/.pytest_cache
@@ -15,3 +18,6 @@ evals
 context
 prompts
 *.pdf
+**/node_modules
+**/.next
+site/.next

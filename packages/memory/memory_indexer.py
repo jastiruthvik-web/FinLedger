@@ -24,6 +24,7 @@ class MemoryIndexer:
         return self.indexer.upsert(event.client_id, chunk_id, ChunkType.MEMORY, content, {
             "gstin": event.vendor_gstin, "hsn": event.hsn_sac, "description": event.description,
             "document_id": event.document_id, "field": event.field,
+            "new_ledger": event.new_ledger,
         })
 
     def index_posted_bill(self, client_id: str, document_id: str, erp_id: str, vendor_gstin: str,

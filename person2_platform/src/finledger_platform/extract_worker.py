@@ -10,6 +10,7 @@ Outcomes per job:
     ok                                  -> document 'extracted' + workflow event by the firm's automation
                                            maker + score job carrying the CanonicalInvoice, in one transaction
 
+Extract does not read ledgers or rag_chunks. The map worker is the call that retrieves.
 Before the model call, token holds left by an earlier attempt whose lease expired are marked 'expired' (013).
 The model call runs outside any database transaction. Settlement re-checks the lease inside the same
 transaction as the status change, so a worker whose lease expired cannot land a late result.
@@ -17,6 +18,7 @@ transaction as the status change, so a worker whose lease expired cannot land a 
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Callable
 
@@ -163,24 +165,42 @@ def default_extract(conn: psycopg.Connection | None = None) -> ExtractFn:
     With a connection, token holds and usage are durable: PostgresKillSwitch reserves and settles on the
     hold's id, each step in its own short tenant() transaction, never one held across the model call.
     The connection must not already be inside a transaction. Without one, usage stays in memory.
+
+    ``FINLEDGER_GEMINI_LIVE=1`` is the only switch that builds the explicit live transport. Any other
+    value leaves it unset. The switch does not fall back to mock, and it does not open a socket here.
     """
     from extract.contract import extract_document
     from extract.extract_worker import ExtractWorker
     from extract.vision_fallback import ExtractionDispatcher
+    from usage.model_router import ModelRouter, Settings
     from usage.usage_writer import UsageWriter
 
+    settings = Settings.from_env()
+    transport = _explicit_live_transport(settings)
     if conn is None:
-        worker = ExtractWorker(UsageWriter())
+        if transport is None:
+            worker = ExtractWorker(UsageWriter())
+        else:
+            worker = ExtractWorker(UsageWriter(), ModelRouter(settings, gemini_transport=transport))
     else:
-        from usage.model_router import ModelRouter, Settings
         from usage.postgres_kill_switch import PostgresKillSwitch
         from usage.postgres_usage_writer import PostgresUsageWriter
 
-        settings = Settings.from_env()
         switch = PostgresKillSwitch(conn, limit=settings.per_bill_token_cap, enabled=settings.kill_switch_enabled)
-        worker = ExtractWorker(PostgresUsageWriter(conn), ModelRouter(settings, kill_switch=switch))
+        worker = ExtractWorker(
+            PostgresUsageWriter(conn),
+            ModelRouter(settings, gemini_transport=transport, kill_switch=switch),
+        )
     dispatcher = ExtractionDispatcher(worker)
     return lambda **kw: extract_document(dispatcher, **kw)
+
+
+def _explicit_live_transport(settings):
+    if os.getenv("FINLEDGER_GEMINI_LIVE", "").strip() != "1":
+        return None
+    from usage.live_gemini import build_explicit_transport
+
+    return build_explicit_transport(settings)
 
 
 def run_forever(pool, store, make_extract: Callable[[psycopg.Connection], ExtractFn],

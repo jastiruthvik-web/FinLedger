@@ -73,8 +73,11 @@ def test_embeddings_do_not_cross_clients(world, conn):
             conn.execute("insert into rag_chunks (client_id, chunk_type, content, embedding) values (%s, 'ledger', %s, %s)",
                          (c["id"], text, "{0.1,0.2,0.3}"))
     with tenant(conn, world.b["id"]):
-        contents = [r["content"] for r in conn.execute("select content from rag_chunks").fetchall()]
-    assert contents == ["Purchase - Yarn"]
+        rows = conn.execute("select content, embedding is null as plain from rag_chunks").fetchall()
+    contents = [row["content"] for row in rows]
+    assert "Purchase - Yarn" in contents
+    assert "Purchase - Raw Material" not in contents
+    assert [row["content"] for row in rows if not row["plain"]] == ["Purchase - Yarn"]
 
 
 def test_object_path_contains_client_id(world, client, conn, store, settings):

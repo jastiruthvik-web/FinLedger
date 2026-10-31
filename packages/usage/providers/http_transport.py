@@ -1,7 +1,7 @@
 """Gemini HTTP transport. Tests inject the HTTP call; nothing here opens a network socket.
 
-The router still refuses to construct this transport, and staging/production still refuse
-the gemini provider. Wiring a live credential is a separate owner-approved step.
+ModelRouter does not construct this transport. Staging and production accept gemini only
+when the caller passes an HttpGeminiTransport whose client is the explicit HTTP client.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from usage.providers.bounds import require_positive_finite, require_positive_int
-from usage.providers.gemini import GEMINI_OUTPUT_TOKEN_ALLOWANCE
+from usage.providers.gemini import gemini_output_allowance
 from usage.providers.transport import TransportError, TransportResponse
 
 # Location, model and project are path segments. Reject anything that could change the host or path.
@@ -140,7 +140,7 @@ def _request_body(purpose: str, payload: dict[str, Any]) -> bytes:
     return json.dumps(
         {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"maxOutputTokens": GEMINI_OUTPUT_TOKEN_ALLOWANCE},
+            "generationConfig": {"maxOutputTokens": gemini_output_allowance(purpose)},
         },
         separators=(",", ":"),
     ).encode("utf-8")

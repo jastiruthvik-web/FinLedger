@@ -54,6 +54,7 @@ def test_success_settles_status_event_and_score_job_atomically(world, client, co
     fake = Recorder()
     assert run_once(conn, store, fake) == "extracted"
     assert fake.calls[0]["document_class"] == "invoice" and "Grand Total" in fake.calls[0]["markdown"]
+    assert "chunks" not in fake.calls[0]
     assert doc_row(conn, world, doc_id)["status"] == "extracted"
     maker = maker_id(owner, world.firm1)
     [score] = jobs(conn, world.a["id"], "score")
@@ -87,6 +88,11 @@ def test_statement_is_an_exception_without_a_model_call(world, client, conn, sto
     assert fake.calls == []
     assert dict(doc_row(conn, world, doc_id)) == {"status": "exception", "status_reason": "statement_not_extracted"}
     assert jobs(conn, world.a["id"], "score") == []
+    with tenant(conn, world.a["id"]):
+        meta = conn.execute("select source_meta from documents where id = %s", (doc_id,)).fetchone()["source_meta"]
+    assert meta["bank_lines"] == [{
+        "date": "2026-09-01", "narration": "", "reference": "INV-1", "debit": "5000.00", "credit": None,
+    }]
 
 
 @pytest.mark.parametrize("field,value", [
@@ -224,5 +230,43 @@ def test_durable_cap_refusal_leaves_the_document_unextracted(world, client, conn
 def test_hosted_environment_refuses_mock_provider(monkeypatch):
     monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "mock")
     monkeypatch.setenv("FINLEDGER_ENV", "staging")
+    monkeypatch.delenv("FINLEDGER_GEMINI_LIVE", raising=False)
     with pytest.raises(RuntimeError, match="hosted"):
         extract_worker.default_extract()
+
+
+def test_live_flag_does_not_fall_back_to_mock(monkeypatch):
+    monkeypatch.setenv("FINLEDGER_GEMINI_LIVE", "1")
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("FINLEDGER_ENV", "staging")
+    monkeypatch.setenv("FINLEDGER_GEMINI_CREDENTIAL", "CANARYSECRET")
+    with pytest.raises(RuntimeError, match="does not fall back to another provider") as exc:
+        extract_worker.default_extract()
+    assert "CANARYSECRET" not in str(exc.value)
+
+
+def test_hosted_gemini_without_the_live_switch_is_refused(monkeypatch):
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("FINLEDGER_GEMINI_LOCATION", "asia-south1")
+    monkeypatch.setenv("FINLEDGER_MODEL_EXTRACT", "gemini-2.5-flash")
+    monkeypatch.setenv("FINLEDGER_ENV", "production")
+    monkeypatch.delenv("FINLEDGER_GEMINI_LIVE", raising=False)
+    with pytest.raises(RuntimeError, match="gemini LLM provider cannot run in a hosted environment"):
+        extract_worker.default_extract()
+
+
+def test_live_switch_wires_the_explicit_client_without_opening_a_socket(monkeypatch):
+    import inspect
+    import socket
+
+    monkeypatch.setenv("FINLEDGER_GEMINI_LIVE", "1")
+    monkeypatch.setenv("FINLEDGER_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("FINLEDGER_ENV", "production")
+    monkeypatch.setenv("FINLEDGER_GEMINI_LOCATION", "asia-south1")
+    monkeypatch.setenv("FINLEDGER_MODEL_EXTRACT", "gemini-2.5-flash")
+    monkeypatch.setenv("FINLEDGER_GEMINI_PROJECT", "finledger-local")
+    monkeypatch.setenv("FINLEDGER_GEMINI_CREDENTIAL", "CANARYSECRET")
+    monkeypatch.setattr(socket, "create_connection", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("socket")))
+    assert callable(extract_worker.default_extract())
+    assert "GeminiHttpClient(" not in inspect.getsource(extract_worker.default_extract)
+    assert "CANARYSECRET" not in inspect.getsource(extract_worker.default_extract)

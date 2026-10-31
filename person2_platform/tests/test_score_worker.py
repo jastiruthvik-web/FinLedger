@@ -54,6 +54,9 @@ def test_success_scores_as_the_database_maker_and_finishes(world, client, conn, 
     assert call["client_id"] == str(world.a["id"]) and call["document_id"] == doc_id
     assert doc_row(conn, world, doc_id)["status"] == "scored"
     assert score_job(conn, world)["state"] == "done"
+    [mapped] = jobs(conn, world.a["id"], "map")
+    assert mapped["state"] == "queued" and mapped["payload"]["document_id"] == doc_id
+    assert "chunks" not in mapped["payload"] and "canonical_invoice" not in mapped["payload"]
     assert run_once(conn, fake) is None
 
 
@@ -64,6 +67,7 @@ def test_replayed_job_is_skipped(world, client, conn, store, settings, owner):
     again = Scorer()
     assert run_once(conn, again) == "skipped" and again.calls == []
     assert doc_row(conn, world, doc_id)["status"] == "scored"
+    assert len(jobs(conn, world.a["id"], "map")) == 1
 
 
 def test_rejected_invoice_is_a_document_exception_with_nothing_half_written(world, client, conn, store, settings, owner):
@@ -73,6 +77,7 @@ def test_rejected_invoice_is_a_document_exception_with_nothing_half_written(worl
     last = events(conn, world, doc_id)[-1]
     assert last["action"] == "score_exception" and last["actor_id"] == maker_id(owner, world.firm1)
     assert score_job(conn, world)["state"] == "done"
+    assert jobs(conn, world.a["id"], "map") == []
 
 
 def test_payload_for_another_document_never_reaches_the_scorer(world, client, conn, store, settings, owner):
@@ -82,6 +87,7 @@ def test_payload_for_another_document_never_reaches_the_scorer(world, client, co
     fake = Scorer()
     assert run_once(conn, fake) == "exception" and fake.calls == []
     assert doc_row(conn, world, doc_id) == {"status": "exception", "status_reason": "score_payload_rejected"}
+    assert jobs(conn, world.a["id"], "map") == []
 
 
 def test_transient_failure_retries_with_a_fixed_reason(world, client, conn, store, settings):
@@ -90,6 +96,7 @@ def test_transient_failure_retries_with_a_fixed_reason(world, client, conn, stor
     job = score_job(conn, world)
     assert job["state"] == "queued" and job["last_error"] == "score processing failed"
     assert doc_row(conn, world, doc_id)["status"] == "extracted"  # the scorer's write rolled back
+    assert jobs(conn, world.a["id"], "map") == []
 
 
 def test_lost_lease_rolls_back_the_score(world, client, conn, store, settings, owner):
@@ -97,6 +104,7 @@ def test_lost_lease_rolls_back_the_score(world, client, conn, store, settings, o
     steal = lambda: owner.execute("update jobs set claim_token = gen_random_uuid() where queue = 'score'")
     assert run_once(conn, Scorer(during=steal)) == "lease_lost"
     assert doc_row(conn, world, doc_id)["status"] == "extracted"
+    assert jobs(conn, world.a["id"], "map") == []
 
 
 def test_errors_reaching_run_once_are_generic(conn, monkeypatch):

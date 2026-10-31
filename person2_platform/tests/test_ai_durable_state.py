@@ -40,8 +40,10 @@ def test_rag_chunks_upsert_on_client_ref_and_fill_empty_refs(world, conn):
         conn.execute("insert into rag_chunks (client_id, chunk_type, content) values (%s, 'ledger', 'x')", (a,))
         conn.execute("insert into rag_chunks (client_id, chunk_type, content) values (%s, 'ledger', 'y')", (a,))
         rows = conn.execute("select ref, content from rag_chunks order by id").fetchall()
-    assert rows[0] == {"ref": "memory:1", "content": "second"}
-    assert len(rows) == 3 and all(r["ref"].startswith("auto:") for r in rows[1:])
+    own = [row for row in rows if not row["ref"].startswith("library:")]
+    assert own[0] == {"ref": "memory:1", "content": "second"}
+    assert len(own) == 3 and all(row["ref"].startswith("auto:") for row in own[1:])
+    assert sum(row["ref"].startswith("library:") for row in rows) == 18
 
 
 def test_reservations_enforce_cap_reconcile_and_release(world, conn):
@@ -192,7 +194,7 @@ def test_upgrade_backfills_refs_and_maker_for_existing_firms(scratch_db):
     _apply_through_011(scratch_db)
     firm_id = _seed_old_rows(scratch_db, ["", "", "memory:1"])
     assert migrate(scratch_db) == ["012_ai_durable_state.sql", "013_llm_orphaned_holds.sql",
-                                  "014_llm_unpriced_usage.sql"]
+                                  "014_llm_unpriced_usage.sql", "015_purchase_orders_goods_receipts.sql"]
     with psycopg.connect(scratch_db) as c:
         refs = sorted(r[0] for r in c.execute("select ref from rag_chunks"))
         assert refs[-1] == "memory:1" and all(r.startswith("legacy:") for r in refs[:2])

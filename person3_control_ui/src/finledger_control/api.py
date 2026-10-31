@@ -8,22 +8,28 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from finledger_platform.browser_sessions import MIN_PASSWORD_CHARS, SessionDenied, StaffSession
 from finledger_platform.db import firm
 from finledger_platform.staff_invites import InviteConflict, InviteDenied, InviteInvalid, InviteUnavailable
+from .desk_api import register_desk_api
+from .desk_shell import desk_document, mfa_blocks, queue_name
 from .service import Conflict, ControlService, Forbidden, NotFound
 from .web import (render_accept_invite, render_form_error, render_home, render_inbox, render_login, render_mfa,
                   render_review, render_staff_invite)
 
 
-def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, staff_invitations=None) -> FastAPI:
+def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, staff_invitations=None,
+               local_files=None) -> FastAPI:
     app=FastAPI(title="FinLedger Control & Review", version="0.1.0")
 
     @app.exception_handler(RequestValidationError)
-    async def invalid_form(_request: Request, _exc: RequestValidationError):
+    async def invalid_form(request: Request, _exc: RequestValidationError):
         # Validation details echo submitted fields, including passwords. Show a fixed message instead.
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "This request is incomplete or invalid. Nothing was saved."},
+                                status_code=422, headers={"Cache-Control": "no-store"})
         return HTMLResponse(render_form_error(), status_code=422)
 
     @app.middleware("http")
@@ -31,7 +37,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         response=await call_next(request)
         response.headers["X-Content-Type-Options"]="nosniff"
         response.headers["Referrer-Policy"]="no-referrer"
-        response.headers["X-Frame-Options"]="DENY"
+        # SAMEORIGIN so the desk can show the source bill in a frame. Other sites still cannot.
+        response.headers["X-Frame-Options"]="SAMEORIGIN"
         if browser_sessions is not None:
             response.headers["Cache-Control"]="no-store"
         return response
@@ -50,7 +57,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
                 with pool.connection() as conn: staff=browser_sessions.resolve(conn,cookie)
             except SessionDenied:
                 raise HTTPException(303,headers={"Location":"/login"}) from None
-            return {"user_id":staff.user_id,"firm_id":staff.firm_id,"firm_admin":staff.firm_admin,"aal":staff.aal}
+            return {"user_id":staff.user_id,"firm_id":staff.firm_id,"firm_admin":staff.firm_admin,
+                    "aal":staff.aal,"mfa_required":staff.mfa_required}
         if not authorization or not authorization.startswith("Bearer "): raise HTTPException(401,"Bearer token required")
         digest=hashlib.sha256(authorization[7:].encode()).digest()
         with pool.connection() as conn:
@@ -61,7 +69,7 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
     def access(client_id, who, conn):
         roles=conn.execute("select user_client_roles(%s,%s) as roles",(who["user_id"],client_id)).fetchone()["roles"]
         if not roles: raise HTTPException(403,"No access to this client")
-        if "aal" in who and who["aal"] != "aal2":
+        if mfa_blocks(who):
             raise HTTPException(303,headers={"Location":"/mfa"})
         return set(roles)
 
@@ -94,8 +102,14 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
     if browser_sessions is not None:
         @app.get("/",response_class=HTMLResponse)
         def home(request:Request,who=Depends(user)):
-            if who["aal"] != "aal2":
+            if mfa_blocks(who):
                 raise HTTPException(303,headers={"Location":"/mfa"})
+            shell=desk_document(request)
+            if shell is not None:
+                token=request.cookies.get("fl_login_csrf") or secrets.token_urlsafe(32)
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             with pool.connection() as conn, firm(conn,who["firm_id"]):
                 if who["firm_admin"]:
                     clients=conn.execute("select id,name from clients order by name").fetchall()
@@ -112,6 +126,11 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         @app.get("/login",response_class=HTMLResponse)
         def login_page(request:Request):
             token=secrets.token_urlsafe(32)
+            shell=desk_document(request)
+            if shell is not None:
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             response=HTMLResponse(render_login(token),headers={"Cache-Control":"no-store"})
             response.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
                                 samesite="strict",path="/")
@@ -143,6 +162,12 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
 
         @app.get("/mfa",response_class=HTMLResponse)
         def mfa_page(request:Request,who=Depends(user)):
+            shell=desk_document(request)
+            if shell is not None:
+                token=request.cookies.get("fl_login_csrf") or secrets.token_urlsafe(32)
+                shell.set_cookie("fl_login_csrf",token,httponly=True,secure=secure_browser(request),
+                                 samesite="strict",path="/")
+                return shell
             cookie=request.cookies.get(session_cookie_name(request))
             try:
                 with pool.connection() as conn: factors=browser_sessions.mfa_factors(conn,cookie)
@@ -190,7 +215,7 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
 
         def invite_admin(who):
             # Inviting grants access to client data: same AAL2 gate as every other browser page.
-            if who["aal"] != "aal2":
+            if mfa_blocks(who):
                 raise HTTPException(303,headers={"Location":"/mfa"})
             if not who["firm_admin"]:
                 raise HTTPException(403,"Firm admin only")
@@ -201,6 +226,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
 
         @app.get("/admin/staff",response_class=HTMLResponse)
         def staff_invite_page(request:Request,who=Depends(user)):
+            if desk_document(request) is not None:
+                return RedirectResponse("/staff", status_code=302)
             invite_admin(who)
             clients=firm_clients(who)
             return login_csrf_page(request,lambda token: render_staff_invite(clients,token))
@@ -241,6 +268,12 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         def accept_invite_page(request:Request,token_hash:str=Query("",max_length=512),
                                type:str=Query("",max_length=20)):
             # GET never redeems the token: mail scanners prefetch links.
+            shell = desk_document(request)
+            if shell is not None:
+                token = secrets.token_urlsafe(32)
+                shell.set_cookie("fl_login_csrf", token, httponly=True, secure=secure_browser(request),
+                                 samesite="strict", path="/")
+                return shell
             if type != "invite" or not token_hash:
                 return HTMLResponse(render_login(secrets.token_urlsafe(32),"This invitation link is incomplete."),
                                     status_code=400,headers={"Cache-Control":"no-store"})
@@ -268,8 +301,34 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
     @app.get("/healthz")
     def health(): return {"ok":True}
 
+    if local_files is not None:
+        @app.get("/files/{signed}")
+        def signed_file(signed: str):
+            claim = local_files.verify_token(signed)
+            if claim is None:
+                raise HTTPException(403, "link expired or invalid")
+            key, filename = claim
+            try:
+                data = local_files.get(key)
+            except OSError:
+                raise HTTPException(404, "file missing") from None
+            mime = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "md": "text/markdown",
+                    "json": "application/json"}.get(key.rsplit(".", 1)[-1], "application/octet-stream")
+            name = filename or key.rsplit("/", 1)[-1]
+            if all(32 <= ord(c) < 127 and c not in '"\\' for c in name):
+                disposition = f'inline; filename="{name}"'
+            else:
+                from urllib.parse import quote
+                disposition = "inline; filename*=UTF-8''" + quote(name, safe="")
+            return Response(data, media_type=mime, headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": disposition,
+            })
+
     @app.get("/clients/{client_id}/review",response_class=HTMLResponse)
-    def inbox(client_id:UUID, queue:str=Query("needs_review"), who=Depends(user)):
+    def inbox(request:Request, client_id:UUID, queue:str=Query("needs_review"), who=Depends(user)):
+        if desk_document(request) is not None:
+            return RedirectResponse(f"/clients/{client_id}?queue={queue_name(queue)}", status_code=302)
         with pool.connection() as conn:
             access(client_id,who,conn); svc=ControlService(conn)
             try: items,counts=svc.inbox(client_id,queue),svc.queue_counts(client_id)
@@ -281,6 +340,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
 
     @app.get("/clients/{client_id}/review/{document_id}",response_class=HTMLResponse)
     def review(request:Request,client_id:UUID,document_id:UUID,who=Depends(user)):
+        if desk_document(request) is not None:
+            return RedirectResponse(f"/clients/{client_id}/invoices/{document_id}", status_code=302)
         with pool.connection() as conn:
             roles=access(client_id,who,conn)
             try: detail=ControlService(conn).review_detail(client_id,document_id,source_url)
@@ -318,5 +379,8 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
             try: ControlService(conn).reject(client_id,document_id,who["user_id"],note,resubmit=resubmit,expected_revision=revision)
             except (NotFound,Forbidden,Conflict) as exc: raise HTTPException(problem(exc),str(exc))
         return RedirectResponse(f"/clients/{client_id}/review?queue=exception",303)
+    register_desk_api(app, pool=pool, source_url=source_url, browser_sessions=browser_sessions,
+                      staff_invitations=staff_invitations, secure_browser=secure_browser,
+                      session_cookie_name=session_cookie_name, verify_form_csrf=verify_form_csrf, user=user)
     return app
 

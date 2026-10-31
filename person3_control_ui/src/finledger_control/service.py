@@ -8,8 +8,11 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
+from finledger_platform.purchase_documents import find_goods_receipt, find_purchase_order
+
 from .boundary import validate_draft, validate_invoice
 from .risk import RiskContext, score_invoice
+from .three_way import assess_three_way, posting_view
 from .workflow import Action, Policy, Role, TransitionContext, decide_route, transition, InvalidTransition
 
 
@@ -133,29 +136,60 @@ class ControlService:
         editors.update(str(row["actor_id"]) for row in rows)
         return frozenset(editors)
 
+    def _open_match(self, client_id, document_id):
+        """Caller already holds the client transaction."""
+        mode = self.conn.execute("select match_mode from clients where id=%s", (client_id,)).fetchone()
+        invoice_row = self.conn.execute(
+            "select payload from canonical_invoices where document_id=%s", (document_id,)).fetchone()
+        draft_row = self.conn.execute(
+            "select payload from voucher_drafts where document_id=%s", (document_id,)).fetchone()
+        invoice = invoice_row["payload"] if invoice_row and isinstance(invoice_row["payload"], dict) else {}
+        draft = draft_row["payload"] if draft_row and isinstance(draft_row["payload"], dict) else {}
+        purchase_order = find_purchase_order(self.conn, invoice.get("po_number"))
+        goods_receipt = find_goods_receipt(self.conn, invoice.get("grn_number"), invoice.get("po_number"))
+        match = assess_three_way(invoice, purchase_order, goods_receipt, (mode or {}).get("match_mode") or "invoice_only")
+        return match, posting_view(draft)
+
+    def bill_match(self, client_id, document_id):
+        with self._tx(client_id):
+            match, posting = self._open_match(client_id, document_id)
+            return {"match": match, "posting": posting}
+
+    def _approval_body(self, status, revision, *, post, block_post, posting):
+        body = {"status": status, "revision": revision}
+        if post and block_post:
+            body["posting_blocked"] = True
+            body["posting_reason"] = posting["reason"]
+        return body
+
     def approve(self, client_id, document_id, actor_id, *, post, expected_revision):
         with self._tx(client_id):
             row = self.conn.execute("""select d.status,v.revision,c.maker_id,v.created_by from documents d
                 join voucher_drafts v on v.document_id=d.id join canonical_invoices c on c.document_id=d.id
                 where d.id=%s for update of d,v""", (document_id,)).fetchone()
             if not row: raise NotFound("review not found")
+            match, posting = self._open_match(client_id, document_id)
+            if match["holds_review"]:
+                raise Conflict(match["review_note"])
+            block_post = match["match_mode"] == "three_way" and posting["blocked"]
+            enqueue = bool(post) and not block_post
             actor, maker = str(actor_id), str(row["maker_id"])
             editors = self._editor_ids(document_id, row["created_by"])
             if row["status"] == "approved" and row["revision"] == expected_revision and actor != maker and actor not in editors:
-                if post: self._enqueue_post(client_id, document_id, row["revision"])
-                return {"status":"approved","revision":row["revision"]}
+                if enqueue: self._enqueue_post(client_id, document_id, row["revision"])
+                return self._approval_body(row["status"], row["revision"], post=post, block_post=block_post, posting=posting)
             if row["revision"] != expected_revision: raise Conflict(f"revision changed from {expected_revision} to {row['revision']}")
             roles = self._roles(actor_id, client_id)
-            try: new = transition(row["status"], Action.APPROVE_DRAFT if not post else Action.APPROVE,
+            try: new = transition(row["status"], Action.APPROVE_DRAFT if not enqueue else Action.APPROVE,
                                   TransitionContext(actor, roles, maker_id=maker, editor_ids=editors))
             except InvalidTransition as exc: raise Forbidden(str(exc)) from exc
             self.conn.execute("update documents set status=%s,updated_at=now() where id=%s", (new, document_id))
-            self._event(client_id, document_id, row["status"], new, "approve_and_post" if post else "approve_draft", actor_id)
+            self._event(client_id, document_id, row["status"], new, "approve_and_post" if enqueue else "approve_draft", actor_id)
             self.conn.execute("update review_tasks set status='approved',decided_by=%s,decided_at=now() where document_id=%s and status='open'", (actor_id, document_id))
             self.conn.execute("insert into approvals(client_id,document_id,kind,actor_id,revision) values(%s,%s,'human',%s,%s) on conflict do nothing",
                               (client_id, document_id, actor_id, row["revision"]))
-            if post: self._enqueue_post(client_id, document_id, row["revision"])
-            return {"status":new,"revision":row["revision"]}
+            if enqueue: self._enqueue_post(client_id, document_id, row["revision"])
+            return self._approval_body(new, row["revision"], post=post, block_post=block_post, posting=posting)
 
     def edit_field(self, client_id, document_id, actor_id, field, value, *, expected_revision):
         allowed = {"party_ledger", "narration", "bill_wise.ref", "bill_wise.due_date"}
@@ -215,6 +249,9 @@ class ControlService:
             self.conn.execute("update posting_attempts set result=%s,erp_id=%s,error=%s,completed_at=now() where id=%s",
                               ("posted" if ok else "failed",erp_id,error,row["id"]))
             self._event(client_id,document_id,row["status"],new,"erp_posted" if ok else "erp_failed",metadata={"erp_id":erp_id,"error":error})
+            if ok and new == "posted":
+                from finledger_platform.client_index import index_posted_document
+                index_posted_document(self.conn, client_id, document_id, erp_id)
             return {"status":new}
 
     def post_job(self, client_id, document_id):
@@ -254,6 +291,7 @@ class ControlService:
         with self._tx(client_id):
             rows = self.conn.execute("""select d.id as document_id,d.original_filename,d.status,d.status_reason,
                  d.document_class,c.payload->>'invoice_no' as invoice_no,c.payload->'vendor'->>'name' as vendor_name,
+                 c.payload->>'invoice_date' as invoice_date,
                  (c.payload->>'total')::numeric as total,r.score,r.band,ej.extract_state
               from documents d left join canonical_invoices c on c.document_id=d.id
               left join lateral(select score,band from risk_assessments where document_id=d.id order by id desc limit 1) r on true

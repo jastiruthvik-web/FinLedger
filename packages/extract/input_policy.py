@@ -19,6 +19,11 @@ _PII_LINE_PREFIXES = (
 )
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 _PHONE_RE = re.compile(r"(?:\+?\d[\d\s\-()]{7,}\d)")
+# Calendar dates match the phone shape (2026-10-05 is a digit, dashes, and a digit).
+# They are removed before the phone check so an invoice date is not treated as a phone number.
+_DATE_TOKEN = re.compile(
+    r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}-\d{1,2}-\d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\.\d{1,2}\.\d{4})\b"
+)
 _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 _CANARY_RE = re.compile(r"FINLEDGER_PII_CANARY_[A-Za-z0-9]+")
 _INVOICE_FIELD_PREFIXES = (
@@ -34,6 +39,10 @@ _INVOICE_FIELD_PREFIXES = (
 )
 
 DEFAULT_MAX_IMAGE_BYTES = int(os.getenv("FINLEDGER_VISION_MAX_IMAGE_BYTES", "4194304"))
+
+
+def _has_phone(text: str) -> bool:
+    return _PHONE_RE.search(_DATE_TOKEN.sub(" ", text)) is not None
 
 
 def _is_invoice_structure_line(stripped: str) -> bool:
@@ -56,7 +65,7 @@ def minimize_invoice_markdown(markdown: str) -> str:
         if any(lower.startswith(f"{prefix}:") or lower.startswith(f"{prefix} ") for prefix in _PII_LINE_PREFIXES):
             continue
         if not _is_invoice_structure_line(stripped):
-            if _EMAIL_RE.search(stripped) or _PHONE_RE.search(stripped) or _URL_RE.search(stripped):
+            if _EMAIL_RE.search(stripped) or _has_phone(stripped) or _URL_RE.search(stripped):
                 continue
         kept.append(line)
     return "\n".join(kept)

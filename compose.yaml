@@ -71,6 +71,14 @@ services:
     command: ["finledger-platform", "score-worker"]
     healthcheck: {disable: true}
 
+  map-worker:
+    <<: *app
+    command: ["finledger-platform", "map-worker"]
+    environment:
+      <<: *env
+      FINLEDGER_LLM_PROVIDER: mock  # local only; ModelRouter refuses mock when FINLEDGER_ENV is staging/production
+    healthcheck: {disable: true}
+
   control:
     <<: *app
     command: ["finledger-control", "--host", "0.0.0.0", "--port", "8770"]

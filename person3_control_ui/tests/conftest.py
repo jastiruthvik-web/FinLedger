@@ -62,7 +62,9 @@ def app_dsn(owner_dsn):
     migrate(owner_dsn)
     with psycopg.connect(owner_dsn, autocommit=True) as c:
         c.execute("drop role if exists fl_control")
-        c.execute(f"create role fl_control login password '{APP_PASSWORD}' in role finledger_app")
+        c.execute(
+            f"create role fl_control login password '{APP_PASSWORD}' in role finledger_app, finledger_worker_map"
+        )
     info = conninfo_to_dict(owner_dsn); info.update(user="fl_control", password=APP_PASSWORD)
     return make_conninfo(**info)
 
@@ -74,7 +76,7 @@ def pool(app_dsn):
 
 @pytest.fixture
 def world(owner_dsn, pool):
-    tables = "posting_attempts, workflow_events, approvals, correction_events, review_tasks, voucher_drafts, risk_assessments, canonical_invoices, firms, users, clients, client_members, vendors, documents, document_assets, jobs, erp_links, mapping_table, masters_snapshots, open_bills, rag_chunks, outbox, rate_limits"
+    tables = "purchase_orders, goods_receipts, posting_attempts, workflow_events, approvals, correction_events, review_tasks, voucher_drafts, risk_assessments, canonical_invoices, firms, users, clients, client_members, vendors, documents, document_assets, jobs, erp_links, mapping_table, masters_snapshots, open_bills, rag_chunks, outbox, rate_limits"
     with psycopg.connect(owner_dsn, autocommit=True) as owner:
         owner.execute(f"truncate {tables} restart identity cascade")
         firm_id, admin_id, _ = create_firm_with_admin(owner, "Sharma & Co", "admin@sharma.test")

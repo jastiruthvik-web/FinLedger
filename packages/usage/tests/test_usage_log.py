@@ -2,10 +2,18 @@ import pytest
 from usage.model_router import ModelRouter
 from usage.usage_writer import UsageWriter
 
-def test_router_resolves_model():
+def test_router_resolves_model(monkeypatch):
+    for name in (
+        "FINLEDGER_MODEL_EXTRACT",
+        "FINLEDGER_MODEL_EXTRACT_VISION",
+        "FINLEDGER_MODEL_RISK",
+        "FINLEDGER_MODEL_MAP",
+        "FINLEDGER_MODEL_SUMMARY",
+    ):
+        monkeypatch.delenv(name, raising=False)
     router = ModelRouter()
-    assert router.resolve_model("extract") == "gemini-1.5-flash"
-    assert router.resolve_model("map") == "gemini-1.5-pro"
+    for purpose in ("extract", "extract_vision", "risk_llm", "map", "summary"):
+        assert router.resolve_model(purpose) == "gemini-3.5-flash-lite"
     
     with pytest.raises(ValueError):
         router.resolve_model("invalid_purpose")

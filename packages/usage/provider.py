@@ -57,7 +57,7 @@ def settle_provider_usage(
 
 
 def persisted_cost_usd(response: object | None) -> float | None:
-    """Cost to store. Mock keeps its zero default. An unpriced Gemini success is not stored as 0."""
+    """Cost to store. Mock keeps its zero default. An unpriced provider success is not stored as 0."""
     if response is None:
         return 0.0
     if getattr(response, "cost_computed", True) is False:
@@ -187,7 +187,7 @@ class MockProvider:
         return {"document_id": invoice["document_id"], "date": invoice.get("invoice_date", ""),
             "voucher_type": "purchase" if invoice.get("document_type") == "purchase_invoice" else invoice.get("document_type", "purchase"),
             "party_ledger": party if known else f"{party} (Proposed)", "party_create_proposal": not known,
-            "lines": [{"ledger": "Purchases", "amount": invoice.get("taxable", invoice.get("total", 0)), "is_debit": True}],
+            "lines": [{"ledger": "Purchases", "amount": invoice.get("total", invoice.get("taxable", 0)), "is_debit": True}],
             "gst": {"treatment": "inter" if invoice.get("igst", 0) else "intra", "input_ledgers": [], "tax_breakup": {}},
             "tds": {"applicable": False, "amount": 0},
             "bill_wise": {"ref_type": "new_ref", "ref": invoice.get("invoice_no", ""), "due_date": invoice.get("due_date")},

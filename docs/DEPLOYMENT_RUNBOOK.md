@@ -34,6 +34,7 @@ One image supplies separate processes. Do not run a worker inside a web process.
 | Email worker | `finledger-platform outbox-worker --client-id <client-uuid>` | One approved client per process; delivery and failed outbox rows |
 | Extract worker | `finledger-platform extract-worker` | Extract retries/dead jobs, document exceptions, `score` queue depth |
 | Score worker | `finledger-platform score-worker` | Score retries/dead jobs, `canonical_invoice_rejected` exceptions, `score` queue age |
+| Map worker | `finledger-platform map-worker` | Map retries/dead jobs, `map_draft_rejected` exceptions, `map` queue age |
 
 The extract worker needs migration 012 and an approved provider. On `main` at `4fc1fe2`, `ModelRouter`
 refuses both `mock` and `gemini` when `FINLEDGER_ENV` is staging/production, so `extract-worker` exits at
@@ -42,6 +43,9 @@ reserves and settles tokens durably (`PostgresKillSwitch`/`PostgresUsageWriter`,
 a bill whose cap is spent becomes a document exception (`ai_budget_exceeded`), not a dead job.
 The score worker runs Person 3's `ControlService.score` as the firm's automation maker and moves
 `extracted → scored`; an invoice Person 3 rejects becomes a document exception, never a retry loop.
+A successful score enqueues `map`. The map worker indexes that client's ledgers, vendors, corrections
+and posted bills, retrieves with the Postgres indexer, and submits the draft in the same tenant
+transaction. Extract does not read those ledgers.
 
 Runtime database logins (one per process; names are examples, passwords are owner-chosen secrets).
 Each login is `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB INHERIT`, owns no tables, and connects
@@ -54,6 +58,7 @@ through the session pooler. Queue functions check `session_user`, so grant roles
 | Ingest worker | `fl_ingest` | `finledger_app`, `finledger_worker_ingest` | |
 | Extract worker | `fl_extract` | `finledger_app`, `finledger_worker_extract` | Only after migrations 012–014 and an approved provider |
 | Score worker | `fl_score` | `finledger_app`, `finledger_worker_score` | Needs 012 (`automation_maker_id`) |
+| Map worker | `fl_map` | `finledger_app`, `finledger_worker_map` | Needs 012 (`automation_maker_id`, `rag_chunks`) |
 | Email worker | `fl_outbox` | `finledger_app` | Row locks, no queue claim |
 | Migrations | owner | | One-off restricted environment only |
 

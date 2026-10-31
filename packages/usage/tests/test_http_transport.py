@@ -7,7 +7,7 @@ import pytest
 from usage.kill_switch import KillSwitch
 from usage.model_router import ModelRouter, Settings
 from usage.provider_errors import ProviderTransientError
-from usage.providers.gemini import GeminiProvider, GeminiSettings
+from usage.providers.gemini import GeminiProvider, GeminiSettings, gemini_output_allowance
 from usage.providers.http_transport import HttpGeminiTransport, build_generate_url
 from usage.providers.transport import TransportError
 
@@ -294,10 +294,76 @@ def test_request_sends_output_allowance_as_max_output_tokens():
         payload={"markdown": "", "page_image_bytes": [blob]},
     )
     body = json.loads(http.calls[0]["body"])
-    assert body["generationConfig"]["maxOutputTokens"] == 256
+    assert body["generationConfig"]["maxOutputTokens"] == gemini_output_allowance("extract_vision")
     parts = body["contents"][0]["parts"]
     assert parts[1]["inline_data"]["data"]
     assert b"page_image_bytes" not in http.calls[0]["body"]
+
+
+def test_extract_allowance_fits_an_invoice_and_map_keeps_its_draft_allowance():
+    from usage.providers.gemini import (
+        GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE,
+        GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE,
+        GEMINI_OUTPUT_TOKEN_ALLOWANCE,
+    )
+
+    assert GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE > GEMINI_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("extract") == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("extract_vision") == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("map") == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+    http = FakeHttp([(200, _ok_body()), (200, _ok_body())])
+    _transport(http).generate(model=MODEL, location=LOCATION, purpose="extract", payload={"markdown": "Date: 2026-10-05"})
+    body = json.loads(http.calls[0]["body"])
+    assert body["generationConfig"]["maxOutputTokens"] == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    _transport(http).generate(model=MODEL, location=LOCATION, purpose="map", payload={"invoice": {"total": 1}})
+    mapped = json.loads(http.calls[1]["body"])
+    assert mapped["generationConfig"]["maxOutputTokens"] == GEMINI_MAP_OUTPUT_TOKEN_ALLOWANCE
+
+
+def test_extract_allowance_covers_a_harbour_invoice_the_old_cap_cuts_off():
+    """256 output tokens truncate a CanonicalInvoice. The extract allowance has to fit the whole object."""
+    import json as json_lib
+
+    from usage.provider import _tokens
+    from usage.providers.gemini import GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE, GEMINI_OUTPUT_TOKEN_ALLOWANCE
+
+    invoice = {
+        "document_id": "ea7be5af-9f18-49eb-bea4-b229188fc251",
+        "document_type": "purchase_invoice",
+        "vendor": {"name": "Shree Ganesh Metals", "gstin": "27AAGGS5678B1ZY", "pan": "", "state": "Maharashtra"},
+        "buyer_gstin": "27AABCH4821M1ZG",
+        "invoice_no": "HG-1041",
+        "invoice_date": "2026-10-12",
+        "due_date": None,
+        "irn": None,
+        "po_number": None,
+        "grn_number": None,
+        "taxable": 10000,
+        "cgst": 900,
+        "sgst": 900,
+        "igst": 0,
+        "cess": 0,
+        "round_off": 0,
+        "total": 11800,
+        "line_items": [
+            {"desc": "Harbour loom bearing set", "hsn_sac": "8482", "qty": 10, "rate": 1000,
+             "taxable": 10000, "tax_rate": 18, "tax_amount": 1800},
+        ],
+        "bank_upi": None,
+        "confidences": {"invoice_no": 0.9, "date": 0.9, "gstin": 0.9, "total": 0.9},
+        "raw_markdown_path": "",
+        "page_image_paths": [],
+    }
+    text = json_lib.dumps(invoice)
+    while _tokens(text) <= GEMINI_OUTPUT_TOKEN_ALLOWANCE:
+        invoice["line_items"].append(dict(invoice["line_items"][0]))
+        text = json_lib.dumps(invoice)
+    assert _tokens(text) > GEMINI_OUTPUT_TOKEN_ALLOWANCE
+    assert _tokens(text) < GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    assert gemini_output_allowance("extract") == GEMINI_EXTRACT_OUTPUT_TOKEN_ALLOWANCE
+    with pytest.raises(json_lib.JSONDecodeError):
+        json_lib.loads(text[: GEMINI_OUTPUT_TOKEN_ALLOWANCE * 4])
+    assert json_lib.loads(text)["invoice_date"] == "2026-10-12"
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf"), True, False])
