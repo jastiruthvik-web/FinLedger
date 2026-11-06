@@ -5,7 +5,9 @@ import { Shell } from "@/components/Shell";
 import { AcceptInvite } from "@/pages/AcceptInvite";
 import { ClientsPage, ClientDetail } from "@/pages/Clients";
 import { Dashboard } from "@/pages/Dashboard";
+import { CapturePage } from "@/pages/Capture";
 import { InvoicePage } from "@/pages/Invoice";
+import { PurchasingPage } from "@/pages/Purchasing";
 import { MfaPage } from "@/pages/Mfa";
 import { PageHeader } from "@/pages/Placeholder";
 import { QueuePage } from "@/pages/Queue";
@@ -33,6 +35,8 @@ function heading(route: Route): { title: string; description: string } {
     return { title: queue.label, description: queue.context };
   }
   if (route.name === "invoice") return { title: "Invoice", description: "Review the bill, then post the voucher." };
+  if (route.name === "capture") return { title: "Invoice capture", description: "Bring a bill in from a scan, a portal download, or the vendor link." };
+  if (route.name === "purchasing") return { title: "Purchasing", description: "Purchase orders and goods receipts entered or imported here." };
   if (route.name === "staff") return { title: "Staff", description: "Invite someone at the firm and choose the clients they can work on." };
   if (route.name === "mfa") return { title: "Two-step verification", description: "Enter the code from your authenticator app before you open a client." };
   if (route.name === "accept") return { title: "Set your password", description: "Choose a password, then sign in." };
@@ -120,6 +124,8 @@ export function App() {
   else if (route.name === "transactions") body = <TransactionsPage onNavigate={go} />;
   else if (route.name === "queue") body = <QueuePage clientId={route.clientId} queue={route.queue} onNavigate={go} />;
   else if (route.name === "invoice") body = <InvoicePage clientId={route.clientId} documentId={route.documentId} onNavigate={go} />;
+  else if (route.name === "capture") body = <CapturePage clientId={route.clientId} />;
+  else if (route.name === "purchasing") body = <PurchasingPage clientId={route.clientId} />;
   else if (route.name === "staff") body = <StaffPage />;
   else if (route.name === "mfa") body = <MfaPage onVerified={() => go("/")} />;
   return (

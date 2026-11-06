@@ -24,6 +24,9 @@ export function InvoicePage({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [ledger, setLedger] = useState("");
+  const [expense, setExpense] = useState<string[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [departmentCode, setDepartmentCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -36,6 +39,7 @@ export function InvoicePage({
         if (!live) return;
         setPage(next);
         setLedger(next.invoice.draft?.party_ledger || "");
+        setExpense((next.invoice.draft?.lines || []).map((line) => line.ledger || ""));
       })
       .catch((reason: unknown) => {
         if (live) setError(errorMessage(reason, "This bill is not ready for review yet."));
@@ -47,6 +51,7 @@ export function InvoicePage({
     const next = await api.invoice(clientId, documentId);
     setPage(next);
     setLedger(next.invoice.draft?.party_ledger || "");
+    setExpense((next.invoice.draft?.lines || []).map((line) => line.ledger || ""));
   }
 
   async function run(action: () => Promise<unknown>, done: string) {
@@ -199,9 +204,34 @@ export function InvoicePage({
                   Edit party ledger
                   <Input className="mt-1.5" value={ledger} maxLength={4000} onChange={(event) => setLedger(event.target.value)} />
                 </label>
-                <Button type="submit" variant="outline" disabled={busy}>Save edit</Button>
+                <p className="text-xs text-muted-foreground">The party ledger is the supplier. It is separate from the expense ledger on each line.</p>
+                <Button type="submit" variant="outline" disabled={busy}>Save party ledger</Button>
               </form>
             )}
+            {editable && rows.map((row, index) => {
+              const suggestion = detail.suggestions?.find((item) => item.line === index);
+              return (
+                <form key={`expense-${index}`} className="space-y-2" onSubmit={(event) => {
+                  event.preventDefault();
+                  void run(
+                    () => api.saveField(clientId, documentId, detail.revision, `lines.${index}.ledger`, expense[index] || ""),
+                    "Expense ledger saved for this line. Older corrections stay on file.",
+                  );
+                }}>
+                  <label className="block text-sm font-medium">
+                    Expense ledger, line {index + 1}
+                    <Input className="mt-1.5" value={expense[index] || ""} maxLength={4000} onChange={(event) => {
+                      const next = expense.slice();
+                      next[index] = event.target.value;
+                      setExpense(next);
+                    }} />
+                  </label>
+                  <p className="text-xs text-muted-foreground">{row.ledger}</p>
+                  {suggestion ? <p className="text-xs text-muted-foreground">{suggestion.confidence}: {suggestion.explanation}</p> : null}
+                  <Button type="submit" variant="outline" disabled={busy}>Save expense ledger</Button>
+                </form>
+              );
+            })}
             {canApprove && (
               <div className="flex flex-wrap gap-2">
                 {choice === "approve_and_post" ? (
@@ -213,6 +243,17 @@ export function InvoicePage({
                   <Button disabled={busy} onClick={() => void run(() => api.approve(clientId, documentId, detail.revision, false), page.posting?.reason ? `Approved. ${page.posting.reason}` : "Approved.")}>
                     Approve
                   </Button>
+                ) : null}
+                {choice === "override" ? (
+                  <div className="w-full space-y-2">
+                    <label className="block text-sm">
+                      Reason for the exception
+                      <Input className="mt-1.5" value={overrideReason} maxLength={500} onChange={(event) => setOverrideReason(event.target.value)} />
+                    </label>
+                    <Button disabled={busy} onClick={() => void run(() => api.approve(clientId, documentId, detail.revision, false, overrideReason), "Approved with a recorded exception.")}>
+                      Approve with exception
+                    </Button>
+                  </div>
                 ) : null}
                 <Button variant="outline" disabled={busy} onClick={() => void run(() => api.sendBack(clientId, documentId, detail.revision), "Sent back for a correction.")}>
                   Ask vendor to resend
@@ -249,12 +290,70 @@ export function InvoicePage({
                 ))}
               </tbody>
             </table>
+            {page.match.source_label ? <p className="text-sm text-muted-foreground">{page.match.source_label}</p> : null}
+            {page.match.lines && page.match.lines.length > 0 ? (
+              <table className="w-full border-collapse text-sm" aria-label="Line match">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                    <th className="py-1.5 font-medium">Line</th>
+                    <th className="py-1.5 text-right font-medium">Invoice</th>
+                    <th className="py-1.5 text-right font-medium">Order</th>
+                    <th className="py-1.5 text-right font-medium">Received</th>
+                    <th className="py-1.5 text-right font-medium">Open</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {page.match.lines.map((line) => (
+                    <tr key={`${line.invoice_line_no}-${line.po_line_no}`} className="border-b border-border last:border-0">
+                      <td className="py-1.5">{line.invoice_line_no} → PO {line.po_line_no}<span className="ml-2 text-muted-foreground">{line.uom || "unit unknown"} {line.currency || ""}</span></td>
+                      <td className="py-1.5 text-right">{line.invoice_qty}</td>
+                      <td className="py-1.5 text-right">{line.po_qty}</td>
+                      <td className="py-1.5 text-right">{line.received_qty}</td>
+                      <td className="py-1.5 text-right">{line.available_qty}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            {(page.match.ignored_receipts || []).map((receipt) => (
+              <p key={`${receipt.grn_number}-${receipt.status}`} className="text-sm text-muted-foreground">
+                {receipt.grn_number} is {receipt.status?.replaceAll("_", " ")} ({receipt.document_kind?.replaceAll("_", " ")}). It is not counted as accepted goods.
+              </p>
+            ))}
             {page.posting?.blocked && page.posting.reason ? (
               <p className="text-sm text-muted-foreground">{page.posting.reason}</p>
             ) : null}
           </div>
         </section>
       ) : null}
+      <section className="rounded-xl border border-border bg-card p-4" aria-label="Department sign-off">
+        <h2 className="text-sm font-semibold">Department sign-off</h2>
+        <p className="mt-1 text-sm text-muted-foreground">This is not the accounts approval. A department head can sign the bill without posting it.</p>
+        <p className="mt-2 text-sm">Status: {(detail.department?.status || "unassigned").replaceAll("_", " ")}{detail.department?.department_name ? ` · ${detail.department.department_name}` : ""}{detail.department?.cost_centre ? ` · ${detail.department.cost_centre}` : ""}</p>
+        {(detail.department?.approvers || []).length === 0 && detail.department?.status === "no_approver" ? (
+          <p className="mt-1 text-sm">No approver is mapped. A firm admin can record a fallback. The bill is not approved by that step.</p>
+        ) : null}
+        {editable ? (
+          <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(event) => {
+            event.preventDefault();
+            void run(() => api.routeDepartment(clientId, documentId, departmentCode), "Routed to the department.");
+          }}>
+            <label className="text-sm">
+              Department code
+              <Input className="mt-1.5" value={departmentCode} maxLength={20} onChange={(event) => setDepartmentCode(event.target.value)} />
+            </label>
+            <Button type="submit" variant="outline" disabled={busy}>Route</Button>
+          </form>
+        ) : null}
+        {canApprove && detail.department && detail.department.revision > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => void run(() => api.decideDepartment(clientId, documentId, detail.department?.revision || 0, "approve", ""), "Department signed. Accounts approval is still separate.")}>Department sign-off</Button>
+            {detail.department.status === "no_approver" && page.roles.includes("firm_admin") ? (
+              <Button variant="outline" disabled={busy} onClick={() => void run(() => api.decideDepartment(clientId, documentId, detail.department?.revision || 0, "admin_fallback", "No department approver"), "Admin fallback recorded. The bill is not accounts-approved.")}>Admin fallback</Button>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

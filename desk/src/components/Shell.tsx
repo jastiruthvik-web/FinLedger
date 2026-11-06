@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { clientIdOf, queueHref, QUEUES, type QueueKey, type Route } from "@/router";
+import { captureHref, clientIdOf, purchasingHref, queueHref, QUEUES, type QueueKey, type Route } from "@/router";
 import { currentTheme, toggleTheme } from "@/theme";
 import type { ClientRow, Session } from "@/types";
 
@@ -163,6 +163,8 @@ function SidebarNav({
         <p className={cn("mt-4 px-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground", collapsed && "lg:sr-only")}>Review</p>
         {clientId ? (
           <div role="group" aria-label="Review" className="flex flex-col gap-0.5">
+            <NavItem href={captureHref(clientId)} current={route.name === "capture"} collapsed={collapsed} nested onClick={(event) => onFollow(event, captureHref(clientId))}>Capture</NavItem>
+            <NavItem href={purchasingHref(clientId)} current={route.name === "purchasing"} collapsed={collapsed} nested onClick={(event) => onFollow(event, purchasingHref(clientId))}>Purchasing</NavItem>
             {QUEUES.map((queue) => (
               <NavItem
                 key={queue.key}

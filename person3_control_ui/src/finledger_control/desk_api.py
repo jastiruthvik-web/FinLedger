@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -55,7 +55,7 @@ def problem(exc: Exception) -> int:
 
 
 def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff_invitations,
-                      secure_browser, session_cookie_name, verify_form_csrf, user) -> None:
+                      secure_browser, session_cookie_name, verify_form_csrf, user, store=None) -> None:
     def api_json(body, status: int = 200, request: Request | None = None, csrf: str | None = None):
         response = JSONResponse(jsonable(body), status_code=status, headers={"Cache-Control": "no-store"})
         if request is not None and csrf is not None:
@@ -415,8 +415,12 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
         with pool.connection() as conn:
             desk_roles(client_id, who, conn)
             try:
+                reason = body.get("override_reason")
+                if reason is not None and not isinstance(reason, str):
+                    raise HTTPException(422, _INVALID)
                 result = ControlService(conn).approve(
-                    client_id, document_id, who["user_id"], post=post, expected_revision=revision)
+                    client_id, document_id, who["user_id"], post=post, expected_revision=revision,
+                    override_reason=reason)
             except (NotFound, Forbidden, Conflict) as exc:
                 raise HTTPException(problem(exc), str(exc)) from None
         return api_json(result)
@@ -435,6 +439,169 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
             try:
                 result = ControlService(conn).reject(
                     client_id, document_id, who["user_id"], note, resubmit=resubmit, expected_revision=revision)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result)
+
+    @app.get("/api/clients/{client_id}/capture")
+    def capture_state(client_id: UUID, who=Depends(api_user)):
+        import os
+        from finledger_platform.capture import capture_status
+        from finledger_platform.db import tenant
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            with tenant(conn, client_id):
+                client = conn.execute(
+                    "select inbound_slug, public_token from clients where id = %s", (client_id,)
+                ).fetchone()
+        base = os.environ.get("FINLEDGER_APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+        domain = os.environ.get("FINLEDGER_INBOUND_DOMAIN", "inbound.finledger.in")
+        secret = os.environ.get("FINLEDGER_INBOUND_WEBHOOK_SECRET", "").encode()
+        return api_json(capture_status(
+            inbound_webhook_secret=secret,
+            inbound_address=f"invoices.{client['inbound_slug']}@{domain}",
+            upload_link=f"{base}/i/{client['public_token']}",
+        ))
+
+    @app.post("/api/clients/{client_id}/imports")
+    async def import_bills(request: Request, client_id: UUID, source: str = Form(...),
+                           external_message_id: str = Form(""), csrf_token: str = Form(""),
+                           files: list[UploadFile] = File(...), who=Depends(api_user)):
+        verify_form_csrf(request, csrf_token, LOGIN_CSRF)
+        if source not in ("mail_scan", "portal_download"):
+            raise HTTPException(422, _INVALID)
+        if len(files) > 10:
+            raise HTTPException(400, "Send at most 10 files at once.")
+        if store is None:
+            raise HTTPException(503, "File storage is not configured for import.")
+        import os
+        from finledger_platform.capture import import_uploads
+        from finledger_platform.db import tenant
+        max_bytes = int(os.environ.get("FINLEDGER_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+        blobs, total = [], 0
+        for upload in files:
+            data = await upload.read(max_bytes + 1)
+            total += len(data)
+            if total > max_bytes:
+                raise HTTPException(413, "Files too large")
+            blobs.append((upload.filename or "upload", data))
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            if not desk_roles(client_id, who, conn) & {"ap_clerk", "approver", "firm_admin"}:
+                raise HTTPException(403, "Edit role required")
+            try:
+                with tenant(conn, client_id):
+                    receipt = import_uploads(
+                        conn, store, client_id, blobs, source=source,
+                        external_message_id=external_message_id, actor_id=who["user_id"],
+                        max_bytes=max_bytes,
+                    )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from None
+        return api_json({
+            "received": receipt.received, "rejected": receipt.rejected, "capture_source": source,
+            "mailbox_connected": False, "vendor_portal_connected": False,
+        }, 201 if receipt.received else 422)
+
+    @app.get("/api/clients/{client_id}/purchasing")
+    def purchasing(client_id: UUID, who=Depends(api_user)):
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            body = ControlService(conn).purchasing(client_id)
+        return api_json(body)
+
+    @app.post("/api/clients/{client_id}/purchase-orders")
+    async def save_order(request: Request, client_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        with pool.connection() as conn:
+            roles = desk_roles(client_id, who, conn)
+            if not roles & {"ap_clerk", "approver", "firm_admin"}:
+                raise HTTPException(403, "Edit role required")
+            try:
+                result = ControlService(conn).save_purchase_order(client_id, who["user_id"], body)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result, 201)
+
+    @app.post("/api/clients/{client_id}/goods-receipts")
+    async def save_receipt(request: Request, client_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        with pool.connection() as conn:
+            roles = desk_roles(client_id, who, conn)
+            if not roles & {"ap_clerk", "approver", "firm_admin"}:
+                raise HTTPException(403, "Edit role required")
+            try:
+                result = ControlService(conn).save_goods_receipt(client_id, who["user_id"], body)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result, 201)
+
+    @app.post("/api/clients/{client_id}/goods-receipts/review")
+    async def review_receipt(request: Request, client_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            try:
+                result = ControlService(conn).review_goods_receipt(client_id, who["user_id"], body)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result)
+
+    @app.post("/api/clients/{client_id}/tolerances")
+    async def save_tolerance(request: Request, client_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            try:
+                result = ControlService(conn).save_match_tolerance(client_id, who["user_id"], body)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result, 201)
+
+    @app.post("/api/clients/{client_id}/departments")
+    async def save_department(request: Request, client_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        approvers = body.get("approver_ids") or []
+        if not isinstance(approvers, list) or any(not isinstance(item, str) for item in approvers):
+            raise HTTPException(422, _INVALID)
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            try:
+                result = ControlService(conn).save_department(client_id, who["user_id"], body)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result, 201)
+
+    @app.post("/api/clients/{client_id}/invoices/{document_id}/department")
+    async def route_department(request: Request, client_id: UUID, document_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        code = need_str(body, "code", 20, required=True)
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            try:
+                result = ControlService(conn).assign_bill_department(client_id, document_id, who["user_id"], code)
+            except (NotFound, Forbidden, Conflict) as exc:
+                raise HTTPException(problem(exc), str(exc)) from None
+        return api_json(result)
+
+    @app.post("/api/clients/{client_id}/invoices/{document_id}/department-decision")
+    async def department_decision(request: Request, client_id: UUID, document_id: UUID, who=Depends(api_user)):
+        body = await read_json(request)
+        check_csrf(request, body)
+        decision = need_str(body, "decision", 40, required=True)
+        note = need_str(body, "note", 500, required=False)
+        with pool.connection() as conn:
+            desk_roles(client_id, who, conn)
+            try:
+                result = ControlService(conn).decide_department(
+                    client_id, document_id, who["user_id"], decision=decision,
+                    expected_revision=need_revision(body), note=note)
             except (NotFound, Forbidden, Conflict) as exc:
                 raise HTTPException(problem(exc), str(exc)) from None
         return api_json(result)
@@ -459,6 +626,14 @@ def register_desk_api(app: FastAPI, *, pool, source_url, browser_sessions, staff
         if shell is not None:
             return shell
         return RedirectResponse("/admin/staff", status_code=302)
+
+    @app.get("/clients/{client_id}/capture")
+    def capture_page(request: Request, client_id: UUID, _who=Depends(user)):
+        return desk_page(request)
+
+    @app.get("/clients/{client_id}/purchasing")
+    def purchasing_page(request: Request, client_id: UUID, _who=Depends(user)):
+        return desk_page(request)
 
     @app.get("/clients/{client_id}")
     def client_page(request: Request, client_id: UUID, _who=Depends(user)):

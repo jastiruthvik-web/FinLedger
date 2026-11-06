@@ -8,8 +8,16 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
-from finledger_platform.purchase_documents import find_goods_receipt, find_purchase_order
+from finledger_platform.purchase_documents import OverAllocated, find_goods_receipt, find_purchase_order
 
+from .ap_books import BooksError
+from .ap_books import assign_department as assign_department_row
+from .ap_books import department_decision as department_decision_row
+from .ap_books import expense_suggestions, invalidate_department, match_document, purchasing_view
+from .ap_books import release as release_allocations
+from .ap_books import reserve as reserve_allocations
+from .ap_books import review_receipt as review_receipt_row
+from .ap_books import route_for, save_order, save_receipt, save_tolerance
 from .boundary import validate_draft, validate_invoice
 from .risk import RiskContext, score_invoice
 from .three_way import assess_three_way, posting_view
@@ -145,9 +153,29 @@ class ControlService:
             "select payload from voucher_drafts where document_id=%s", (document_id,)).fetchone()
         invoice = invoice_row["payload"] if invoice_row and isinstance(invoice_row["payload"], dict) else {}
         draft = draft_row["payload"] if draft_row and isinstance(draft_row["payload"], dict) else {}
+        match_mode = (mode or {}).get("match_mode") or "invoice_only"
         purchase_order = find_purchase_order(self.conn, invoice.get("po_number"))
         goods_receipt = find_goods_receipt(self.conn, invoice.get("grn_number"), invoice.get("po_number"))
-        match = assess_three_way(invoice, purchase_order, goods_receipt, (mode or {}).get("match_mode") or "invoice_only")
+        if not str(invoice.get("po_number") or "").strip():
+            match = assess_three_way(invoice, None, None, "invoice_only")
+            match.update({
+                "basis": "header", "path": "non_po", "applicable": False, "matched": False,
+                "holds_review": False, "differences": [], "review_note": "", "blocked": [],
+                "overridable": [], "admin_overridable": [], "reservation": [],
+                "source_label": "Non-PO bill. Review continues without a purchase order.",
+                "match_mode": match_mode,
+            })
+            return match, posting_view(draft)
+        detailed = match_document(self.conn, document_id, invoice, match_mode)
+        if detailed is not None:
+            return detailed, posting_view(draft)
+        match = assess_three_way(invoice, purchase_order, goods_receipt, match_mode)
+        match.update({
+            "basis": "header", "path": "po",
+            "blocked": list(match["differences"]) if match["holds_review"] else [],
+            "overridable": [], "admin_overridable": [], "reservation": [],
+            "source_label": "Header totals only. Receipt quantities are not reserved until purchase-order lines are on file.",
+        })
         return match, posting_view(draft)
 
     def bill_match(self, client_id, document_id):
@@ -162,15 +190,14 @@ class ControlService:
             body["posting_reason"] = posting["reason"]
         return body
 
-    def approve(self, client_id, document_id, actor_id, *, post, expected_revision):
+    def approve(self, client_id, document_id, actor_id, *, post, expected_revision, override_reason=None):
         with self._tx(client_id):
             row = self.conn.execute("""select d.status,v.revision,c.maker_id,v.created_by from documents d
                 join voucher_drafts v on v.document_id=d.id join canonical_invoices c on c.document_id=d.id
                 where d.id=%s for update of d,v""", (document_id,)).fetchone()
             if not row: raise NotFound("review not found")
             match, posting = self._open_match(client_id, document_id)
-            if match["holds_review"]:
-                raise Conflict(match["review_note"])
+            roles = self._roles(actor_id, client_id)
             block_post = match["match_mode"] == "three_way" and posting["blocked"]
             enqueue = bool(post) and not block_post
             actor, maker = str(actor_id), str(row["maker_id"])
@@ -179,7 +206,13 @@ class ControlService:
                 if enqueue: self._enqueue_post(client_id, document_id, row["revision"])
                 return self._approval_body(row["status"], row["revision"], post=post, block_post=block_post, posting=posting)
             if row["revision"] != expected_revision: raise Conflict(f"revision changed from {expected_revision} to {row['revision']}")
-            roles = self._roles(actor_id, client_id)
+            self._guard_match(client_id, document_id, actor_id, match, roles, override_reason, row["revision"])
+            if match.get("basis") == "lines" and match.get("reservation") and (
+                    match.get("matched") or (override_reason or "").strip()):
+                try:
+                    reserve_allocations(self.conn, document_id, match["reservation"])
+                except OverAllocated as exc:
+                    raise Conflict("That receipt quantity is already on another bill.") from exc
             try: new = transition(row["status"], Action.APPROVE_DRAFT if not enqueue else Action.APPROVE,
                                   TransitionContext(actor, roles, maker_id=maker, editor_ids=editors))
             except InvalidTransition as exc: raise Forbidden(str(exc)) from exc
@@ -191,9 +224,35 @@ class ControlService:
             if enqueue: self._enqueue_post(client_id, document_id, row["revision"])
             return self._approval_body(new, row["revision"], post=post, block_post=block_post, posting=posting)
 
+    def _guard_match(self, client_id, document_id, actor_id, match, roles, override_reason, revision):
+        blocked = match.get("blocked") or []
+        overridable = match.get("overridable") or []
+        admin_over = match.get("admin_overridable") or []
+        if blocked or (match.get("holds_review") and not overridable and not admin_over):
+            raise Conflict(match.get("review_note") or "Match needs review.")
+        if not match.get("holds_review"):
+            return
+        reason = (override_reason or "").strip()
+        if len(reason) < 8:
+            raise Conflict(match.get("review_note") or "A reasoned override is required.")
+        if admin_over and Role.FIRM_ADMIN not in roles:
+            raise Forbidden("firm admin must record this override")
+        self.conn.execute(
+            """insert into match_overrides (client_id, document_id, revision, reason, actor_id)
+               values (%s,%s,%s,%s,%s) on conflict (document_id, revision) do nothing""",
+            (client_id, document_id, revision, reason, actor_id))
+        self._event(client_id, document_id, "in_review", "in_review", "match_override", actor_id, {"reason": reason})
+
+    def _role_names(self, user_id, client_id):
+        return {role.value for role in self._roles(user_id, client_id)}
+
     def edit_field(self, client_id, document_id, actor_id, field, value, *, expected_revision):
+        import re
+        line_edit = re.fullmatch(r"lines\.(\d+)\.(ledger|cost_centre)", field or "")
+        fact_edit = re.fullmatch(r"line_fact\.(\d+)\.(uom|currency|item_code)", field or "")
         allowed = {"party_ledger", "narration", "bill_wise.ref", "bill_wise.due_date"}
-        if field not in allowed: raise Forbidden("field is not editable here")
+        if field not in allowed and not line_edit and not fact_edit:
+            raise Forbidden("field is not editable here")
         with self._tx(client_id):
             row = self.conn.execute("""select v.payload,v.revision,d.status,
                 exists(select 1 from jobs j where j.document_id=d.id and j.queue='post' and j.state in ('running','done')) active_post
@@ -202,11 +261,51 @@ class ControlService:
             if row["status"] in {"posted","reconciled","closed","scheduled","paid"}: raise Conflict(f"cannot edit {row['status']} document")
             if row["active_post"]: raise Conflict("cannot edit while an active post attempt exists")
             if row["revision"] != expected_revision: raise Conflict("draft changed; refresh before saving")
-            payload = row["payload"]; target, leaf = (payload, field)
-            if "." in field:
-                head, leaf = field.split(".",1); target = payload.setdefault(head,{})
-            old = target.get(leaf); target[leaf] = value; revision = row["revision"] + 1
-            self.conn.execute("update voucher_drafts set payload=%s,revision=%s,updated_at=now() where document_id=%s", (Jsonb(payload), revision, document_id))
+            payload = row["payload"]
+            correction_field = field
+            correction_value = value
+            if fact_edit:
+                from finledger_platform.purchase_documents import save_line_fact
+                index = int(fact_edit.group(1))
+                current = self.conn.execute(
+                    "select uom, currency, item_code, po_line_no from invoice_line_facts where document_id=%s and line_no=%s",
+                    (document_id, index + 1)).fetchone()
+                old = (current or {}).get(fact_edit.group(2)) if current else ""
+                save_line_fact(
+                    self.conn, document_id=document_id, line_no=index + 1,
+                    uom=(value if fact_edit.group(2) == "uom" else (current or {}).get("uom") or ""),
+                    currency=(value if fact_edit.group(2) == "currency" else (current or {}).get("currency") or ""),
+                    item_code=(value if fact_edit.group(2) == "item_code" else (current or {}).get("item_code") or ""),
+                    po_line_no=(current or {}).get("po_line_no") if current else None,
+                )
+                correction_field = f"line_{fact_edit.group(2)}"
+                correction_value = value
+                revision = row["revision"] + 1
+                self.conn.execute("update voucher_drafts set revision=%s,updated_at=now() where document_id=%s", (revision, document_id))
+            else:
+                if line_edit:
+                    index = int(line_edit.group(1))
+                    lines = payload.get("lines") or []
+                    if index >= len(lines) or not isinstance(lines[index], dict):
+                        raise Forbidden("that voucher line is not on the draft")
+                    leaf = line_edit.group(2)
+                    old = lines[index].get(leaf)
+                    lines[index][leaf] = None if leaf == "cost_centre" and value == "" else value
+                    correction_field = "expense_ledger" if leaf == "ledger" else "cost_centre"
+                    correction_value = {"line": index, "ledger": lines[index].get("ledger"), "cost_centre": lines[index].get("cost_centre")}
+                    try:
+                        validate_draft(payload, document_id)
+                    except (ValidationError, ValueError) as exc:
+                        raise Conflict(f"invalid voucher draft: {exc}") from exc
+                else:
+                    target, leaf = (payload, field)
+                    if "." in field:
+                        head, leaf = field.split(".", 1)
+                        target = payload.setdefault(head, {})
+                    old = target.get(leaf)
+                    target[leaf] = value
+                revision = row["revision"] + 1
+                self.conn.execute("update voucher_drafts set payload=%s,revision=%s,updated_at=now() where document_id=%s", (Jsonb(payload), revision, document_id))
             if row["status"] == "approved":
                 self.conn.execute("update approvals set superseded_at=now(),superseded_by_revision=%s where document_id=%s and superseded_at is null", (revision,document_id))
                 self.conn.execute("update jobs set state='cancelled',updated_at=now() where document_id=%s and queue='post' and state='queued'", (document_id,))
@@ -214,10 +313,18 @@ class ControlService:
                 self.conn.execute("update documents set status='in_review',updated_at=now() where id=%s", (document_id,))
                 self._event(client_id,document_id,"approved","in_review","approval_invalidated",actor_id,{"revision":revision})
             inv = self.conn.execute("select payload from canonical_invoices where document_id=%s", (document_id,)).fetchone()["payload"]
-            item = (inv.get("line_items") or [{}])[0]
+            items = inv.get("line_items") or [{}]
+            item = items[0] if items else {}
+            if line_edit:
+                chosen = items[int(line_edit.group(1))] if int(line_edit.group(1)) < len(items) else {}
+                if isinstance(correction_value, dict):
+                    correction_value = {**correction_value, "description": chosen.get("desc") or "", "hsn": chosen.get("hsn_sac") or ""}
+                item = chosen or item
             self.conn.execute("""insert into correction_events(client_id,document_id,vendor_gstin,field,old_value,new_value,hsn,description,actor_id)
               values(%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-              (client_id,document_id,(inv.get("vendor") or {}).get("gstin"),field,Jsonb(old),Jsonb(value),item.get("hsn_sac"),item.get("desc"),actor_id))
+              (client_id,document_id,(inv.get("vendor") or {}).get("gstin"),correction_field,Jsonb(old),Jsonb(correction_value),item.get("hsn_sac"),item.get("desc"),actor_id))
+            release_allocations(self.conn, document_id)
+            invalidate_department(self.conn, document_id, actor_id, lambda user_id: self._role_names(user_id, client_id))
             return {"revision":revision,"field":field,"value":value}
 
     def reject(self, client_id, document_id, actor_id, note, *, resubmit, expected_revision):
@@ -312,7 +419,95 @@ class ControlService:
             out = dict(row); out["risk"]={"score":out.pop("score"),"band":out.pop("band"),"marks":out.pop("marks")}
             out["ai_paragraph"] = out["draft"].get("ai_paragraph", "No AI summary was supplied with this draft.")
             out["source_url"] = source_url(out.pop("object_path"), out["filename"]) if source_url else ""
+            out["department"] = route_for(self.conn, document_id)
+            out["suggestions"] = expense_suggestions(self.conn, document_id)
             return out
+
+    def purchasing(self, client_id):
+        with self._tx(client_id):
+            return purchasing_view(self.conn)
+
+    def save_purchase_order(self, client_id, actor_id, body: dict):
+        with self._tx(client_id):
+            try:
+                return save_order(self.conn, po_number=body.get("po_number"), vendor_name=body.get("vendor_name"),
+                                  supplier_gstin=body.get("supplier_gstin"), currency=body.get("currency") or "INR",
+                                  source=body.get("source") or "manual", lines=body.get("lines") or [], actor_id=actor_id)
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def save_goods_receipt(self, client_id, actor_id, body: dict):
+        with self._tx(client_id):
+            try:
+                return save_receipt(self.conn, grn_number=body.get("grn_number"), po_number=body.get("po_number"),
+                                    document_kind=body.get("document_kind") or "goods_receipt",
+                                    source=body.get("source") or "manual", supplier_gstin=body.get("supplier_gstin"),
+                                    currency=body.get("currency") or "INR", lines=body.get("lines") or [], actor_id=actor_id)
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def review_goods_receipt(self, client_id, actor_id, body: dict):
+        roles = self._role_names(actor_id, client_id)
+        if not {"approver", "firm_admin"} & roles:
+            raise Forbidden("approver role required")
+        with self._tx(client_id):
+            try:
+                return review_receipt_row(self.conn, grn_number=body.get("grn_number"), status=body.get("status"),
+                                           actor_id=actor_id, reason=body.get("reason") or "")
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def save_match_tolerance(self, client_id, actor_id, body: dict):
+        if "firm_admin" not in self._role_names(actor_id, client_id):
+            raise Forbidden("firm admin role required")
+        with self._tx(client_id):
+            try:
+                return save_tolerance(self.conn, body, actor_id)
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def save_department(self, client_id, actor_id, body: dict):
+        if "firm_admin" not in self._role_names(actor_id, client_id):
+            raise Forbidden("firm admin role required")
+        with self._tx(client_id):
+            try:
+                from .ap_books import map_approver, save_department as save_department_row
+                saved = save_department_row(self.conn, code=str(body.get("code") or ""), name=str(body.get("name") or ""),
+                                            cost_centre=str(body.get("cost_centre") or ""), actor_id=actor_id)
+                for user_id in body.get("approver_ids") or []:
+                    map_approver(self.conn, code=saved["code"], user_id=user_id,
+                                 actor_roles_for=lambda person: self._role_names(person, client_id))
+                return saved
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def assign_bill_department(self, client_id, document_id, actor_id, code: str):
+        roles = self._role_names(actor_id, client_id)
+        if not {"ap_clerk", "approver", "firm_admin"} & roles:
+            raise Forbidden("edit role required")
+        with self._tx(client_id):
+            try:
+                return assign_department_row(self.conn, document_id=document_id, code=code, actor_id=actor_id,
+                                             role_lookup=lambda person: self._role_names(person, client_id))
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+
+    def decide_department(self, client_id, document_id, actor_id, *, decision, expected_revision, note):
+        with self._tx(client_id):
+            draft = self.conn.execute("select created_by from voucher_drafts where document_id=%s", (document_id,)).fetchone()
+            if draft is None:
+                raise NotFound("review not found")
+            editors = self._editor_ids(document_id, draft["created_by"])
+            try:
+                return department_decision_row(
+                    self.conn, document_id=document_id, decision=decision, expected_revision=expected_revision,
+                    actor_id=actor_id, actor_roles=self._role_names(actor_id, client_id), editors=editors, note=note,
+                    role_lookup=lambda person: self._role_names(person, client_id),
+                )
+            except BooksError as exc:
+                raise Conflict(str(exc)) from exc
+            except PermissionError as exc:
+                raise Forbidden(str(exc)) from exc
 
 
 class _TenantTransaction:

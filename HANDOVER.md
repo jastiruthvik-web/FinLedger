@@ -231,6 +231,16 @@ every completed or WIP change. No uncommitted implementation may remain on the P
 
 ## Latest status
 
+**2026-11-06 invoice capture, line match, and department coding (local):** Branch
+`cursor/ap-capture-match-approval-598f` from `main` `650ba0fe`. Migration `016_ap_capture_match_coding.sql`
+is in the repo and was not applied to Supabase. Authenticated import keeps the original file.
+Email and vendor portals stay disconnected unless a provider is configured. Purchase-order lines allocate
+accepted receipt quantity. A delivery note stays pending until a person accepts it. Department sign-off
+is separate from accounts approval. Expense suggestions read this company's corrections and do not call a
+model. No live Tally post. Throwaway Postgres: platform **381 passed**, control UI **119 passed**,
+packages/evals **254 passed**, mock evals **3/3** and **6/6**. Desk `tsc` passed. One existing Starlette
+deprecation warning in each Python suite. Docker image was not built.
+
 **2026-10-24 Harshith local completion (local):** Branch `claude/project-thread-rzrjfr` from main `4bbf722`.
 `extract-worker` now uses `PostgresKillSwitch` (injected into `ModelRouter`) and `PostgresUsageWriter` on the
 pooled connection; a refused hold ends as document `exception` / `ai_budget_exceeded`. New migration
