@@ -24,7 +24,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import email_in, intake, retrieval_import, tenancy, web
+from . import capture, email_in, intake, retrieval_import, tenancy, web
 from .config import Settings
 from .db import firm, tenant
 from .store import LocalStore
@@ -392,6 +392,47 @@ def create_app(settings: Settings, pool, store) -> FastAPI:
             raise HTTPException(404, "asset not found")
         name = doc["original_filename"] if kind == "raw" else ""
         return {"url": store.signed_url(asset["path"], SIGNED_URL_TTL, name), "expires_in": SIGNED_URL_TTL}
+
+    @app.get("/clients/{client_id}/capture")
+    def capture_state(client_id: UUID, staff: Staff = Depends(staff_dep), conn: psycopg.Connection = Depends(conn_dep)):
+        roles_for(conn, staff, client_id)
+        with tenant(conn, client_id):
+            client = conn.execute("select inbound_slug, public_token from clients where id = %s", (client_id,)).fetchone()
+        return capture.capture_status(
+            inbound_webhook_secret=settings.inbound_webhook_secret,
+            inbound_address=settings.inbound_address(client["inbound_slug"]),
+            upload_link=settings.upload_link(client["public_token"]),
+        )
+
+    @app.post("/clients/{client_id}/imports", status_code=201)
+    async def import_bills(client_id: UUID, source: Literal["mail_scan", "portal_download"] = Form(...),
+                           external_message_id: str = Form(default="", max_length=200),
+                           files: list[UploadFile] = File(...), staff: Staff = Depends(staff_dep),
+                           conn: psycopg.Connection = Depends(conn_dep)):
+        """Signed-in import. The company is the path, never a sender address."""
+        roles_for(conn, staff, client_id)
+        if len(files) > MAX_FILES_PER_UPLOAD:
+            raise HTTPException(400, f"Send at most {MAX_FILES_PER_UPLOAD} files at once.")
+        blobs, total = [], 0
+        for upload in files:
+            data = await upload.read(settings.max_upload_bytes + 1)
+            total += len(data)
+            if total > settings.max_upload_bytes:
+                raise HTTPException(413, "Files too large")
+            blobs.append((upload.filename or "upload", data))
+        try:
+            with tenant(conn, client_id):
+                receipt = capture.import_uploads(
+                    conn, store, client_id, blobs, source=source,
+                    external_message_id=external_message_id, actor_id=staff.user_id,
+                    max_bytes=settings.max_upload_bytes,
+                )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        status = 201 if receipt.received else 422
+        return JSONResponse({"received": receipt.received, "rejected": receipt.rejected,
+                             "capture_source": source, "mailbox_connected": False,
+                             "vendor_portal_connected": False}, status_code=status)
 
     @app.post("/clients/{client_id}/csv", status_code=201)
     async def csv_door(client_id: UUID, file: UploadFile = File(...), staff: Staff = Depends(staff_dep),

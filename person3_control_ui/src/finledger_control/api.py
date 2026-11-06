@@ -381,6 +381,7 @@ def create_app(pool, source_url=lambda path, name: "", browser_sessions=None, st
         return RedirectResponse(f"/clients/{client_id}/review?queue=exception",303)
     register_desk_api(app, pool=pool, source_url=source_url, browser_sessions=browser_sessions,
                       staff_invitations=staff_invitations, secure_browser=secure_browser,
-                      session_cookie_name=session_cookie_name, verify_form_csrf=verify_form_csrf, user=user)
+                      session_cookie_name=session_cookie_name, verify_form_csrf=verify_form_csrf, user=user,
+                      store=local_files)
     return app
 

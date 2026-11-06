@@ -59,17 +59,38 @@ export interface InvoiceDetail {
   risk?: { score?: number | string | null; band?: string | null; marks?: Mark[] };
   draft?: {
     party_ledger?: string | null;
-    lines?: { ledger?: string | null; amount?: string | number | null; is_debit?: boolean | null }[];
+    lines?: { ledger?: string | null; amount?: string | number | null; is_debit?: boolean | null; cost_centre?: string | null }[];
     gst?: { treatment?: string | null };
     tds?: { applicable?: boolean };
     bill_wise?: { ref?: string | null };
     reasons?: string[];
   };
+  department?: DepartmentRoute;
+  suggestions?: GlSuggestion[];
 }
 
 import type { PostingBlock, ThreeWayMatch } from "./threeWay";
 
 export type { PostingBlock, ThreeWayMatch };
+
+export interface GlSuggestion {
+  line: number;
+  ledger: string | null;
+  confidence: string;
+  scope: string;
+  abstained: boolean;
+  explanation: string;
+}
+
+export interface DepartmentRoute {
+  status: string;
+  revision: number;
+  department_code: string | null;
+  department_name: string | null;
+  cost_centre: string | null;
+  note: string;
+  approvers: { user_id: string; email: string }[];
+}
 
 export interface InvoiceResponse {
   client: ClientRow;
@@ -78,6 +99,38 @@ export interface InvoiceResponse {
   invoice: InvoiceDetail;
   match?: ThreeWayMatch;
   posting?: PostingBlock;
+}
+
+export interface CaptureChannel {
+  connected?: boolean;
+  mailbox_connected?: boolean;
+  webhook?: string;
+  mode?: string;
+  address?: string;
+  detail: string;
+}
+
+export interface CaptureStatus {
+  upload_link: string;
+  mail: CaptureChannel;
+  email: CaptureChannel;
+  vendor_portal: CaptureChannel;
+}
+
+export interface ImportResult {
+  received: { document_id: string; filename: string; replayed?: boolean }[];
+  rejected: { filename: string; reason: string }[];
+  mailbox_connected: boolean;
+  vendor_portal_connected: boolean;
+}
+
+export interface PurchasingView {
+  sync: string;
+  source_label: string;
+  tolerance: { version: number; note?: string };
+  purchase_orders: { po_number: string; vendor_name: string; quantity: string; amount: string; source: string }[];
+  goods_receipts: { grn_number: string; po_number: string; document_kind: string; status: string; quantity_received: string; source: string }[];
+  departments: { code: string; name: string; cost_centre: string; approver_ids: string[] }[];
 }
 
 export interface BankLine {

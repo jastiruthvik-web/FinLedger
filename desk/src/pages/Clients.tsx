@@ -5,7 +5,7 @@ import { asAmount, formatDay, rupees } from "@/format";
 import { loadClientBills, loadFirm, type LiveBill } from "@/live";
 import { PageHeader } from "@/pages/Placeholder";
 import { bodyCell, EmptyState, headCell, TableScroll, TableSkeleton } from "@/pages/states";
-import { invoiceHref } from "@/router";
+import { captureHref, invoiceHref, purchasingHref } from "@/router";
 import type { ClientRow } from "@/types";
 
 export function ClientsPage({ onNavigate }: { onNavigate: (url: string) => void }) {
@@ -120,6 +120,12 @@ export function ClientDetail({ clientId, onNavigate }: { clientId: string; onNav
           ? `${client.gstin || "No GSTIN on file"}. ${open.length} open ${open.length === 1 ? "bill" : "bills"}.`
           : "Bills and status for this client."}
       />
+      {client ? (
+        <div className="flex flex-wrap gap-2">
+          <a className="text-sm underline" href={captureHref(clientId)} onClick={(event) => { event.preventDefault(); onNavigate(captureHref(clientId)); }}>Capture bills</a>
+          <a className="text-sm underline" href={purchasingHref(clientId)} onClick={(event) => { event.preventDefault(); onNavigate(purchasingHref(clientId)); }}>Purchasing</a>
+        </div>
+      ) : null}
       {error ? <p role="alert" className="rounded-xl border border-border bg-card px-4 py-6 text-sm">{error}</p> : null}
       {!rows ? <TableSkeleton /> : rows.length === 0 ? (
         <div className="rounded-xl border border-border bg-card">

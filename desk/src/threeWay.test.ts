@@ -44,6 +44,29 @@ test("a mismatch stays needs review and names the side that differs", () => {
   assert.equal(approveChoice(differed, { blocked: true, reason: "Posting is blocked. Offline Tally XML refuses intra-GST drafts." }), "hold");
 });
 
+test("a quantity block stays held even when another field is uncertain", () => {
+  const blocked = match({
+    matched: false,
+    holds_review: true,
+    blocked: ["quantity_over_received"],
+    overridable: ["uom_unknown"],
+    differences: ["Line 1 is above the accepted receipt quantity still open."],
+  });
+  assert.equal(approveChoice(blocked, { blocked: false, reason: null }), "hold");
+});
+
+test("an unknown unit offers a reasoned exception instead of a silent match", () => {
+  const uncertain = match({
+    matched: false,
+    holds_review: true,
+    overridable: ["uom_unknown"],
+    differences: ["Line 1 unit of measure is unknown."],
+    review_note: "Needs review. Line 1 unit of measure is unknown.",
+  });
+  assert.equal(approveChoice(uncertain, { blocked: true, reason: "Posting is blocked." }), "override");
+  assert.equal(matchHeadline(uncertain), "Needs review. Line 1 unit of measure is unknown.");
+});
+
 test("an unlinked bill does not pretend the three sides were compared", () => {
   const open = match({
     applicable: false,

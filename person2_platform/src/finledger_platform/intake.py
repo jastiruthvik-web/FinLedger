@@ -53,6 +53,13 @@ def store_document(conn: psycopg.Connection, store, client_id: UUID | str, chann
     meta = dict(source_meta)
     if part.archive:
         meta["archive"] = part.archive
+    meta["provenance"] = {
+        "sha256": digest,
+        "byte_size": len(part.data),
+        "sniffed_mime": part.mime,
+        "original_retained": True,
+        "channel": channel,
+    }
 
     store.put(key, part.data, part.mime)
     conn.execute(
@@ -76,7 +83,6 @@ def accept(conn: psycopg.Connection, store, client_id: UUID | str, channel: str,
            po_number: str | None = None, vendor_note: str | None = None, phish_flag: bool = False) -> Receipt:
     """Split every upload (ZIP -> members) and store each part as its own document. Call inside tenant()."""
     receipt = Receipt()
-    n = 0
     for filename, data in uploads:
         if not data:
             receipt.rejected.append({"filename": filename, "reason": "empty file"})
@@ -84,8 +90,10 @@ def accept(conn: psycopg.Connection, store, client_id: UUID | str, channel: str,
         parts, rejected = files.explode(filename, data)
         receipt.rejected += [{"filename": r.filename, "reason": r.reason} for r in rejected]
         for part in parts:
-            key = f"{intake_key}#{n}" if intake_key else None
-            n += 1
+            # Company scope is the unique (client_id, intake_key). The suffix is the
+            # attachment bytes, so a webhook retry of the same message does not
+            # depend on part order and a different attachment stays a new document.
+            key = None if not intake_key else f"{intake_key}:{hashlib.sha256(part.data).hexdigest()}"
             receipt.received.append(store_document(
                 conn, store, client_id, channel, part, source_meta, intake_key=key,
                 po_number=po_number, vendor_note=vendor_note, phish_flag=phish_flag))

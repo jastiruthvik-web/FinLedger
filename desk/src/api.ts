@@ -1,4 +1,4 @@
-import type { ClientRow, InvoiceResponse, QueueResponse, ReconciliationResponse, Session } from "./types";
+import type { CaptureStatus, ClientRow, ImportResult, InvoiceResponse, PurchasingView, QueueResponse, ReconciliationResponse, Session } from "./types";
 
 let csrfToken = "";
 
@@ -42,7 +42,7 @@ export function errorMessage(error: unknown, fallback: string): string {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   let response: Response;
   try {
     response = await fetch(path, { ...init, headers, credentials: "same-origin" });
@@ -85,11 +85,39 @@ export const api = {
     post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/edit`, {
       revision, field: "party_ledger", value,
     }),
-  approve: (clientId: string, documentId: string, revision: number, postToBooks: boolean) =>
+  approve: (clientId: string, documentId: string, revision: number, postToBooks: boolean, overrideReason?: string) =>
     post<{ status: string; posting_blocked?: boolean; posting_reason?: string | null }>(
       `/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/approve`,
-      { revision, post: postToBooks },
+      { revision, post: postToBooks, ...(overrideReason ? { override_reason: overrideReason } : {}) },
     ),
+  saveField: (clientId: string, documentId: string, revision: number, field: string, value: string) =>
+    post<{ revision: number }>(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/edit`, {
+      revision, field, value,
+    }),
+  capture: (clientId: string) => request<CaptureStatus>(`/api/clients/${encodeURIComponent(clientId)}/capture`),
+  importBills: async (clientId: string, source: "mail_scan" | "portal_download", externalMessageId: string, files: FileList) => {
+    const body = new FormData();
+    body.set("csrf_token", csrfToken);
+    body.set("source", source);
+    body.set("external_message_id", externalMessageId);
+    for (const file of files) body.append("files", file);
+    return request<ImportResult>(`/api/clients/${encodeURIComponent(clientId)}/imports`, { method: "POST", body });
+  },
+  purchasing: (clientId: string) => request<PurchasingView>(`/api/clients/${encodeURIComponent(clientId)}/purchasing`),
+  saveOrder: (clientId: string, order: Record<string, unknown>) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/purchase-orders`, order),
+  saveReceipt: (clientId: string, receipt: Record<string, unknown>) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/goods-receipts`, receipt),
+  reviewReceipt: (clientId: string, body: Record<string, unknown>) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/goods-receipts/review`, body),
+  saveDepartment: (clientId: string, body: Record<string, unknown>) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/departments`, body),
+  routeDepartment: (clientId: string, documentId: string, code: string) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/department`, { code }),
+  decideDepartment: (clientId: string, documentId: string, revision: number, decision: string, note: string) =>
+    post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/department-decision`, {
+      revision, decision, note,
+    }),
   sendBack: (clientId: string, documentId: string, revision: number) =>
     post(`/api/clients/${encodeURIComponent(clientId)}/invoices/${encodeURIComponent(documentId)}/reject`, {
       revision, resubmit: true,
